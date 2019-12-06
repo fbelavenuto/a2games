@@ -1,0 +1,97 @@
+
+	.include "hw.def"
+	.include "apple.equ"
+
+SRC		:= $5A
+DEST		:= $5C
+LASTBYTE	:= $5E
+
+	.org	$4000
+
+	bit	TXTCLR
+	bit	MIXSET
+	bit	LOWSCR
+	bit	HIRES
+
+;
+; Descompacta tela de abertura em $2000
+;
+	lda		#$00
+	ldx		#$20
+	sta		DEST
+	stx		DEST+1
+	lda		#<TELA_ABERTURA
+	ldx		#>TELA_ABERTURA
+	sta		SRC
+	stx		SRC+1
+	jsr		RLE_UNPACK
+
+;
+; Descompacta jogo em $0C00
+;
+	lda		#$00
+	ldx		#$0C
+	sta		DEST
+	stx		DEST+1
+	lda		#<VIPER
+	ldx		#>VIPER
+	sta		SRC
+	stx		SRC+1
+	jsr		RLE_UNPACK
+
+	jmp		$0C00					; Inicia jogo
+
+;----------------------------------------------------
+
+;
+; Rotina de descompressão de dados RLE
+;
+
+; read a byte and increment source pointer
+RLE_READ:
+	lda		(SRC),y
+	inc		SRC
+	bne		:+
+	inc		SRC + 1
+:	rts
+
+
+; write a byte and increment destination pointer
+RLE_STORE:
+	sta		(DEST),y
+	inc		DEST
+	bne		:+
+	inc		DEST + 1
+:	rts
+
+
+; unpack a run length encoded stream
+RLE_UNPACK:
+	ldy		#0
+	jsr		RLE_READ				; read the first byte
+	sta		LASTBYTE				; save as last byte
+	jsr		RLE_STORE				; store
+@unpack:
+	jsr		RLE_READ				; read next byte
+	cmp		LASTBYTE				; same as last one?
+	beq		@rle					; yes, unpack
+	sta		LASTBYTE				; save as last byte
+	jsr		RLE_STORE				; store
+	jmp		@unpack					; next
+@rle:
+	jsr		RLE_READ				; read byte count
+	tax
+	beq		@end					; 0 = end of stream
+	lda		LASTBYTE
+@read:
+	jsr		RLE_STORE				; store X bytes
+	dex
+	bne		@read
+	beq		@unpack					; next
+@end:
+	rts
+
+VIPER:
+	.incbin	"obj/viper_core.rle"
+TELA_ABERTURA:
+	.incbin	"obj/open_screen.rle"

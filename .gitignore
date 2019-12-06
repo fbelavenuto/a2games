@@ -50,3 +50,6 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+/basicLoader/obj
+/viper/obj
+/pitfall2/obj

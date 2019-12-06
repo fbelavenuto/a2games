@@ -1,0 +1,123 @@
+
+	.setcpu	"6502"
+
+	.include "hw.def"
+	.include "apple.equ"
+
+
+PONT		:= $EA
+ENDI		:= $EC
+ENDF		:= $EE
+
+LOADINIT	:= $BAFE		; contém o endereço de carga do binário, é populado pelo BOOT2
+RUN		:= $C87B		; Roda o programa em BASIC na memória
+SETPAGE1	:= $EC00
+SETPAGE2	:= $EBF8
+
+HIMEM		= $9FFF
+
+inicio:
+	; Copia endereço de carga do binário do BOOT2
+
+	lda	LOADINIT
+	sta	PONT
+	sta	ENDI
+	lda	LOADINIT+1
+	sta	PONT+1
+	sta	ENDI+1
+
+.ifdef PAG1
+	jsr	SETPAGE1
+.else
+	jsr	SETPAGE2
+.endif
+	jsr	HOME
+
+; Carrega endereço inicial do binário e comprimento
+
+	ldy	#$FE			; Ler os 2 bytes anteriores ao inicio
+	dec	PONT+1			; Para isso decremente a parte alta e some $FE
+	lda	(PONT),y		; Comprimento binário (L)
+	sta	ENDF
+	iny
+	lda	(PONT),y		; Comprimento binário (H)
+	sta	ENDF+1
+
+; Calcula endereco final adicionando comprimento
+
+	lda	ENDI
+	clc
+	adc	ENDF
+	sta	ENDF
+	lda	ENDI+1
+	adc	ENDF+1
+	sta	ENDF+1
+
+; Calcula endereço do programa BASIC adicionando comprimento desse loader
+
+	lda	ENDI
+	clc
+	adc	#(fim - inicio + 1)
+	sta	ENDI
+	bcc	pula1
+	inc	ENDI+1
+pula1:
+	lda	ENDF
+	clc
+	adc	#(fim - inicio + 1)
+	sta	ENDF
+	bcc	pula2
+	inc	ENDF+1
+pula2:
+
+	; Configura vetores APPLESOFT
+
+	lda	ENDI		; LOW(Início BASIC)
+	sta	$67		; início BASIC     (L)
+	lda	ENDI+1		; HIGH(Início BASIC)
+	sta	$68		; início BASIC     (H)
+
+	lda	ENDF		; LOW(Final BASIC)
+	sta	$69		; início variáveis (L)
+	sta	$6B		; início arrays    (L)
+	sta	$6D		; fim variáveis    (L)
+	sta	$AF		; fim BASIC        (L)
+
+	lda	ENDF+1		; HIGH(Final BASIC)
+	sta	$6A		; início variáveis (H)
+	sta	$6C		; início arrays    (H)
+	sta	$6E		; fim variáveis    (H)
+	sta	$B0		; fim BASIC        (H)
+
+	lda	#<(HIMEM)	; LOW(HIMEM)
+	sta	$6F		; início variáveis string      (L)
+	sta	$71		; "TEMP PNTR, STRING ROUTINES" (L)
+	sta	$73		; fim dados string             (L)
+
+	lda	#>(HIMEM)	; HIGH(HIMEM)
+	sta	$70		; início variáveis string      (H)
+	sta	$72		; "TEMP PNTR, STRING ROUTINES" (H)
+	sta	$74		; fim dados string             (H)
+
+	; Restaura código em $B1 para interpretação do buffer
+
+	ldx	#$1C		
+loop1:
+	lda	$E424,x
+	sta	$B0,x
+	dex
+	bne	loop1
+
+	lda	#$4C		; O Applesoft muda $91 e $92 para dar JMP
+	sta	$90		; em alguns endereços
+	lda	#$01		; Valor do SPEED=
+	sta	$F1
+
+	jmp	RUN		; Roda programa
+	.res	11,$EA		; Adicionado para deixar o tamanho do loader
+				; em 145 bytes ($91), para facilitar o cálculo
+				; do novo início do binário
+fim:
+	.byte	0		; Necessário para programas em BASIC
+
+	.end
