@@ -53,3 +53,7 @@ dkms.conf
 /basicLoader/obj
 /viper/obj
 /pitfall2/obj
+/BeautifulBoot/*.dsk
+/BeautifulBoot/bb#064000
+/BeautifulBoot/bbmaker#061000
+/BeautifulBoot/obj

@@ -1,5 +1,11 @@
 
-		.setcpu	"6502"
+	.setcpu	"6502"
+
+	.include "apple.equ"
+	.include "monitor.def"
+	.include "macros.def"
+	.include "hw.def"
+	.include "ascii.def"
 ;
 ; System equates
 ;
@@ -175,13 +181,6 @@ L00FF	:= $00FF
 L0100	:= $0100
 L0200	:= $0200
 
-LC010	:= $C010
-LC030	:= $C030
-LC050	:= $C050
-LC051	:= $C051
-LC052	:= $C052
-LC054	:= $C054
-LC055	:= $C055
 LC057	:= $C057
 LC061	:= $C061
 LC064	:= $C064
@@ -197,11 +196,8 @@ LC481	:= $C481
 LC482	:= $C482
 LC483	:= $C483
 
-LF043	:= $F043
 
 LFF00	:= $FF00
-LFF59	:= $FF59
-LFF65	:= $FF65
 LFF84	:= $FF84
 LFF85	:= $FF85
 LFF86	:= $FF86
@@ -222,38 +218,15 @@ LFFFF	:= $FFFF
 	.org $08F0
 ;
 	nop
-	lda LC050
-	lda LC054
-	lda LC052
-	lda LC057
-	jmp INICIO
+	lda	TK2K_HW_GRCOLOR
+	lda	LOWSCR
+	lda	TK2K_HW_TAPE_MOTORA_OFF
+	lda	LC057
+	jmp	INICIO
 
 L0900:
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $20, $24, $28, $2C, $30, $34, $38, $3C
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $21, $25, $29, $2D, $31, $35, $39, $3D
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $22, $26, $2A, $2E, $32, $36, $3A, $3E
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	.byte $23, $27, $2B, $2F, $33, $37, $3B, $3F
-	
+	MAKEHGRHITBL $20
+
 	.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 	.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 	.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
@@ -933,7 +906,7 @@ INKEY:
 	lda	#$FF
 	sta	$C000
 	lda	$C010
-	and	#$7F			; Filtra EAR
+	and	#~TK2K_HW_TAPE_MASK
 	bne	INKEY_TK2000_ORIGINAL
 	lda	#0			; Nenhuma tecla pressionada
 	clc
@@ -952,7 +925,7 @@ INKEY_TK2000_ORIGINAL:
 	pha
 	lda	L0009
 	pha
-	jsr	LF043
+	jsr	TK2K_MON_SCAN1
 	pha
 	txa
 	pha
@@ -4203,9 +4176,9 @@ L6000:
 INICIO:
 	ldx #$FF
 	txs
-	sta LC010
-	sta LC050
-	sta LC052
+	sta TK2K_HW_KEYBOARD_READ
+	sta TK2K_HW_GRCOLOR
+	sta TK2K_HW_TAPE_MOTORA_OFF
 	sta LC057
 	jsr LADE0
 	ldx #$00
@@ -4251,10 +4224,10 @@ L604E:
 L606A:
 	lda L0001
 	beq L6073
-	sta LC055
+	sta HISCR
 	bne L6076
 L6073:
-	sta LC054
+	sta LOWSCR
 L6076:
 	eor #$80
 	sta L0001
@@ -4336,10 +4309,10 @@ L610D:
 	eor #$FF
 	sta L0007
 	jmp L604E
-	sta LC010
-	sta LC051
+	sta TK2K_HW_KEYBOARD_READ
+	sta TK2K_HW_TEXTBW
 	jsr LAF6E
-	jmp LFF59
+	jmp MON_RESET
 L6122:
 	lda #$00
 L6124:
@@ -4566,7 +4539,7 @@ L6289:
 L6293:
 	and #$7F
 	sta L0025
-	sta LC010
+	sta TK2K_HW_KEYBOARD_READ
 	rts
 L629B:
 	ldx #$C8
@@ -5044,7 +5017,7 @@ L65DB:
 	nop
 	jmp L65ED
 L65EA:
-	lda LC030
+	lda HW_SPEAKER
 
 L65ED:
 	clc

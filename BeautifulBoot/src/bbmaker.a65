@@ -1,0 +1,387 @@
+; ===========================================================================
+
+	.include "sys.def"
+	.include "macros.def"
+	.include "hw.def"
+
+; Offsets do IOB (I/O Buffer do DOS33)
+IOB_SLOT	= 1
+IOB_DRIVE	= 2
+IOB_VOLUME	= 3
+IOB_TRACK	= 4
+IOB_SECTOR	= 5
+IOB_BUFFER	= 8
+IOB_COMMAND	= 12
+IOB_ERROR	= 13
+
+; Comandos para a RWTS
+DOS_RWTS_SEEK	= 0
+DOS_RWTS_READ	= 1
+DOS_RWTS_WRITE	= 2
+DOS_RWTS_FORMAT	= 3
+
+
+BUFFER_TL	:= $00
+BUFFER_MSG	:= $04
+TEMP2		:= $06
+BUFFER_LEN	:= $07
+TEMP1		:= $08
+
+DOS33_RWTS	:= $3D9
+
+LOC_TWOLINES	:= $4073		; Posição absoluta no binário BB para o texto das duas últimas linhas
+BUFFER_TR17	:= $4F00		; Buffer usado para carregar trilha 17 setor 0
+BUFFER_CB2K	:= $4000		; Onde o CB2k é carregado
+BUFFER_BB	:= $6000		; Onde o BB é carregado
+
+DOS33_VER	:= $BD00
+
+
+	.org	$1000
+
+	BIT	HW_KEYBOARD_STROBE
+
+INICIO:
+	JSR	MON_HOME
+	LDA	DOS33_VER		; Testa se temos o DOS 3.3 na memória
+	CMP	#$84
+	BEQ	:+
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	textrz	"DOS IS REQUIRED TO RUN THIS."
+; ---------------------------------------------------------------------------
+	JMP	APPLESOFT_START_COLD
+:
+	LDA	#0
+	STA	MON_CV
+	LDA	#12
+	STA	MON_CH
+	JSR	PRINT_MSG
+	textrz	"BEAUTIFUL BOOT"
+	LDA	#12
+	STA	MON_CH
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	textr	"BY MINI APPLER"
+	textrz	""
+; ---------------------------------------------------------------------------
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	;                 1111111111222222222233333333334
+	;        1234567890123456789012345678901234567890
+	text	"[INTRO] THIS PROGRAM TRANSFERS COPIES OF"
+	text	"BEAUTIFUL BOOT TO A DISK.  YOU MUST RE- "
+	textr	"MEMBER THESE 3 RESTRICTIONS:"
+	textr	""
+	textr   "[1] ONLY BINARY FILES WILL SHOW UP"
+	textr	"[2] THESE FILES CANNOT USE DOS."
+	textr	"[3] ONLY THE 1ST 14 FILES ARE PROTECTED "
+	textr	"[OPTIONS] AFTER BOOTING A DISK, THESE"
+	textr	"KEYS ARE ACTIVE:"
+	textr	""
+	textr	"[ESC]      EXIT BEAUTIFUL BOOT."
+	textr	"[RETURN]   RE-CATALOG CURRENT DRIVE."
+	textr	"[SPACEBAR] SHOW ABOUT SCREEN."
+	textr	""
+	textr	"[THIS TEXT IS FORMATTED FOR UPPERCASE!!]"
+	textr	""
+	textrz	"       PRESS A KEY TO CONTINUE"
+
+; ---------------------------------------------------------------------------
+	JSR	GETKEY
+	JSR	MON_HOME
+	LDA	#0
+	STA	MON_CV
+	STA	MON_CH
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	;                 1111111111222222222233333333334
+	;        1234567890123456789012345678901234567890
+	.byte	$8D,$8D
+	textr	"[SOME INFO] BEAUTIFUL BOOT USES A CB2K"
+	textr	"SOFTWARE BY LISIAS FOR FASTER  LOADER."
+	textr	"BEAUTIFUL BOOT WAS REFACTORED BY FABIO"
+	textr	"BELAVENUTO, IT'S A  BINARY FILE  AUTO-"
+	textr	"LOADED BY CB2K."
+	textr	"THIS UTILITY TRANSFER  BEAUTIFUL  BOOT"
+	textr	"AND CB2K FOR A DISK FORMATTED  BY DOS."
+	textr	"THE BOTTOM TWO LINES ON THE TITLE PAGE"
+	textr	"ARE RESERVED FOR YOU TO LEAVE YOUR OWN"
+	textr	"COMMENTS.  AN EXAMPLE MIGHT LOOK LIKE:  "
+	textr	"     CALL THE BEST IN THE MIDWEST:"
+	textr	"THE SAFEHOUSE (612) 724-7066 16MEGABYTES"
+	textr	""
+	textrz	"WOULD YOU LIKE TO MAKE A BEAUTIFUL BOOT?"
+
+; ---------------------------------------------------------------------------
+	JSR	GETKEY
+	CMP	#'Y' | $80
+	BEQ	:+
+	CMP	#'y' | $80
+	BEQ	:+
+EXIT_BASIC:
+	JSR	MON_HOME
+	JMP	APPLESOFT_START_COLD
+; ---------------------------------------------------------------------------
+:
+	LDA	#18
+	STA	MON_CV
+	LDA	#15
+	STA	MON_CH
+	JSR	PRINT_MSG
+	textz	"LOADING..."
+	JSR	PRINT_MSG		; Carrega CB2k do disco
+	.byte	$8D,$84
+	textrz	"BLOAD CB2K,A$6000"
+	JSR	PRINT_MSG		; Carrega BB do disco
+	.byte	$8D,$84
+	textrz	"BLOAD BB,A$4000"
+
+	LDA	#17
+	STA	MON_CV
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	textrz	"ENTER 2-LINE MSG, HIT RETURN WHEN DONE."
+; ---------------------------------------------------------------------------
+	LDA	#'­' | $80
+	LDX	#40
+:
+	JSR	MON_COUT
+	DEX
+	BNE	:-
+	LDA	#>LOC_TWOLINES
+	LDY	#<LOC_TWOLINES
+	LDX	#80			; Comprimento (Length)
+	JSR	GET_TWOLINES
+	JSR	MON_HOME
+	LDA	#12
+	STA	MON_CV
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	textz	"INSERT TARGET DISK IN D1 AND PRESS A KEY"
+; ---------------------------------------------------------------------------
+	JSR	GETKEY
+	JSR	PRINT_MSG
+	.byte	$8D,$84
+	textrz	"INIT HELLO"
+	JSR	PRINT_MSG
+	.byte	$8D,$84
+	textrz	"DELETE HELLO"
+	LDA	#<BUFFER_TR17		; Libera trilhas 1 e 2
+	LDY	#>BUFFER_TR17		; Buffer de leitura
+	STA	DOS_IO_BLOCK + IOB_BUFFER
+	STY	DOS_IO_BLOCK + IOB_BUFFER+1
+	LDA	#17			; Trilha
+	LDX	#0			; Setor
+	LDY	#DOS_RWTS_READ
+	JSR	CALL_DOSRWTS
+	LDY	#$3C			; Muda mapa de setores livres
+	LDA	#$FF			; Todos setores livres
+	STA	BUFFER_TR17,Y		; Trilha 1 - setores 0 à 7
+	INY
+	STA	BUFFER_TR17,Y		; Trilha 1 - setores 8 à 15
+	INY
+	INY
+	INY
+	STA	BUFFER_TR17,Y		; Trilha 2 - setores 0 à 7
+	INY
+	STA	BUFFER_TR17,Y		; Trilha 2 - setores 8 à 15
+	LDA	#17			; Trilha
+	LDX	#0			; Setor
+	LDY	#DOS_RWTS_WRITE
+	JSR	CALL_DOSRWTS
+	LDX	#0			; Setor 0
+	LDA	#<BUFFER_BB		; Grava CB2k na trilha 0 setor 0 à 15
+	LDY	#>BUFFER_BB
+	STA	DOS_IO_BLOCK + IOB_BUFFER
+	STY	DOS_IO_BLOCK + IOB_BUFFER+1
+:
+	STX	TEMP2			; Setor
+	LDA	BOOT_SKEWING, X		; Mapeia setores
+	TAX
+	LDY	#DOS_RWTS_WRITE
+	LDA	#0			; Trilha
+	JSR	CALL_DOSRWTS
+	INC	DOS_IO_BLOCK + IOB_BUFFER+1
+	LDX	TEMP2			; Setor
+	INX
+	CPX	#16
+	BNE	:-
+	JSR	PRINT_MSG		; Salva binário do BB
+	.byte	$8D,$84
+	textrz	"BSAVE BB,A$4000,L$C50"
+
+	JSR	PRINT_MSG
+; ---------------------------------------------------------------------------
+	textr	""
+	textr	""
+	textz	"WANT TO MAKE ANOTHER BEAUTIFUL BOOT?"
+; ---------------------------------------------------------------------------
+	JSR	GETKEY
+	CMP	#'Y' | $80
+	BEQ	:+
+	CMP	#'y' | $80
+	BEQ	:+
+	JMP	EXIT_BASIC
+; ---------------------------------------------------------------------------
+:
+	JMP	INICIO
+
+; =============== S U B	R O U T	I N E =======================================
+CALL_DOSRWTS:
+	STA	DOS_IO_BLOCK + IOB_TRACK
+	STX	DOS_IO_BLOCK + IOB_SECTOR
+	STY	DOS_IO_BLOCK + IOB_COMMAND
+	LDA	#>DOS_IO_BLOCK
+	LDY	#<DOS_IO_BLOCK
+	JSR	DOS33_RWTS
+	RTS
+; End of function CALL_DOSRWTS
+
+
+; =============== S U B	R O U T	I N E =======================================
+PRINT_MSG:
+	PLA
+	STA	BUFFER_MSG
+	PLA
+	STA	BUFFER_MSG + 1
+	TYA
+	PHA
+	TXA
+	PHA
+	JSR	MON_VTAB
+	LDY	#0
+
+@loop:
+	INC	BUFFER_MSG
+	BNE	:+
+	INC	BUFFER_MSG + 1
+:
+	LDA	(BUFFER_MSG),Y
+	BEQ	:+
+	JSR	MON_COUT
+	JMP	@loop
+:
+	PLA
+	TAX
+	PLA
+	TAY
+	LDA	BUFFER_MSG + 1
+	PHA
+	LDA	BUFFER_MSG
+	PHA
+	RTS
+; End of function PRINT_MSG
+
+
+; =============== S U B	R O U T	I N E =======================================
+
+
+GET_TWOLINES:
+	STY	BUFFER_TL
+	STA	BUFFER_TL+1
+	STX	BUFFER_LEN
+	LDY	#0
+@loop:
+	LDA	#'_' | $80
+	JSR	MON_COUT
+	JSR	GETKEY
+	PHA
+	LDA	#$88					; Backspace
+	JSR	MON_COUT
+	LDA	#' ' | $80
+	JSR	MON_COUT
+	LDA	#$88					; Backspace
+	JSR	MON_COUT
+	PLA
+	CMP	#$8D					; RETURN
+	BEQ	@saida
+	CMP	#$88					; Backspace
+	BEQ	@backspace
+	CMP	#$FF					; DELETE
+	BEQ	@backspace
+	CMP	#' ' | $80
+	BCC	@loop
+	CPY	BUFFER_LEN
+	BCC	@STOREKEY
+	LDX	#5
+:
+	JSR	MAKESOUND
+	DEX
+	BNE	:-
+	JMP	@loop
+@STOREKEY:
+	JSR	MON_COUT
+	STA	(BUFFER_TL),Y
+	INY
+	JMP	@loop
+@saida:
+	RTS
+@backspace:
+	CPY	#0
+	BEQ	@loop
+	LDA	#$88					; Backspace
+	JSR	MON_COUT
+	DEY
+	LDA	#' ' | $80
+	STA	(BUFFER_TL),Y
+	JSR	MON_COUT
+	LDA	#$88					; Backspace
+	JSR	MON_COUT
+	JMP	@loop
+; End of function GET_TWOLINES
+
+
+; =============== S U B	R O U T	I N E =======================================
+
+GETKEY:
+	LDA	HW_KEYBOARD_IN
+	BPL	GETKEY
+	BIT	HW_KEYBOARD_STROBE
+; End of function GETKEY
+									; fall-through
+
+; =============== S U B	R O U T	I N E =======================================
+MAKESOUND:
+	STY	TEMP1
+	STX	TEMP2
+	LDY	#10
+@loop:
+	LDX	#100
+:
+	DEX
+	BNE	:-
+	BIT	HW_SPEAKER
+	DEY
+	BNE	@loop
+	LDY	TEMP1
+	LDX	TEMP2
+	RTS
+; End of function MAKESOUND
+
+BOOT_SKEWING:
+	.byte	0, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 15
+
+; ---------------------------------------------------------------------------
+DOS_IO_BLOCK:
+	.byte	$01			; Table type (always 1)
+	.byte	$60			; Slot * 16 ($60 = 96 for slot 6, $50 = 80 for slot 5)
+	.byte	$01			; Drive number (1 or 2)
+	.byte	$00			; Volume Number (usually 0 to specify "any")
+	.byte	$00			; Track (from $00 to $22, 0 to 34)
+	.byte	$00			; Sector (from $00 to $0F, 0 to 15)
+	.word	DOS_DEV_CHAR_TABL	; Address of the Device Characteristics Table
+	.word	$0000			; Address of Read/Write data buffer
+	.byte	$00			; Unused (should be 0)
+	.byte	$00			; Portion of Sector to read (to read all 256 bytes, set to 0)
+	.byte	$00			; Command code: 0 = Seek 1 = Read 2 = Write 3 = Format 
+	.byte	$00			; Return value. If carry bit is clear when RWTS returns, there was no error and this location can be ignored (if the operation was a read, this will be the last byte read).
+					; If carry is set, the result code is: $00 = 0 = no errors $08 = 8 = error during initialization $10 = 16 = write protect error $20 = 32 = volume mismatch error 
+					; $40 = 64 = drive error $80 = 128 = read error (obsolete) 
+	.byte	$00			; Volume number of last access
+	.byte	$60			; Slot * 16 of last access ($60 = 96 for slot 6, $50 = 80 for slot 5)
+	.byte	$01			; Drive number of last access
+DOS_DEV_CHAR_TABL:
+	.byte	$00			; Device type (should be $00 for DiskII)
+	.byte	$01			; Phases per track (should be $01 for DiskII)
+	.word	$D8EF			; Motor on time count (should be $EF, $D8 for DiskII)

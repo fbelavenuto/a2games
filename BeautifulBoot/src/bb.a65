@@ -1,0 +1,1061 @@
+
+	.setcpu "6502"
+	.include "hw.def"
+	.include "sys.def"
+	.include "macros.def"
+	.include "CB2k.def"
+
+;********************************
+
+;*-------------------------------
+;* Zero page
+;*-------------------------------
+
+HGRCLRU		:= MON_A1L
+HGRCLRD		:= MON_A1H
+SOUND_VAR	:= MON_A2
+PTR		:= MON_A3		; HGR screen pointer
+PTRL		:= PTR
+PTRH		:= PTR+1
+PTR_BUFF	:= MON_A5		; buffer
+PTR_BUFFL	:= PTR_BUFF
+PTR_BUFFH	:= PTR_BUFF+1
+
+
+;********************************
+
+	.ORG	$4000
+
+	jmp	INICIO
+
+VERSAO_MAQUINA:	
+	.byte	$FF			; Assumimos Apple2
+
+TEMPLOC:				; Word temporary
+	.word	0
+
+TEMPLOC2:				; Word temporary
+	.word	0
+
+BIN_COUNT:				; count of bin file
+	.byte	0
+
+OBJNUM:					; "index" for each bin
+	.byte	0
+
+RANDOM_DELAY:				; delay (in loops) before moving a star
+	.byte	0
+
+LASCOU_SE:
+	; TODO: Mensagem de CB2k não compatível
+	SYS	CB2K_SYSTEM_PANIC
+
+INICIO:
+	; Identificar se é Apple2 ou TK2000
+	SYS	CB2K_SYSTEM_IDENTIFICATION
+	and	#CB2K_MACHINE_TK2000_FAMILY_MASK
+	cmp	#CB2K_MACHINE_TK2000_FAMILY_MASK	; É TK2000?
+	bne	:+					; Não
+	lda	#0
+	sta	VERSAO_MAQUINA
+:
+	; Checar se é uma versão compatível da CB2k
+	tya
+	pha
+	and	#$F0
+	cmp	#$10			; Major Versio is 1?
+	beq	:+			; Sim, life goes on
+@ERR:
+	jmp	LASCOU_SE		; Não, lascou-se!
+:
+	pla
+	and	#$0F			; Minor version
+	cmp	#1			; É menor que 1?
+	bcc	@ERR			; Sim, lascou-se!
+	
+; Life goes on...
+
+REFRESH:
+	ldx	#$FF
+	ora	RANDOM_DELAY
+	bit	HW_KEYBOARD_STROBE	; No apple2 limpa última tecla pressionada
+	jsr	INIT_SCREEN
+
+;*-------------------------------
+;* Display messages on HGR screen
+;*-------------------------------
+
+	LDA	#13
+	STA	MON_CH
+	LDA	#1
+	STA	MON_CV
+	JSR	DSP_HGR_STR
+	textrz	"Beautiful Boot"
+
+	LDA	#13
+	STA	MON_CH
+	JSR	DSP_HGR_STR
+	textz	"by Mini Appler"
+
+	LDA	#0
+	STA	MON_CH
+	LDA	#22
+	STA	MON_CV
+	JSR	DSP_HGR_STR		;* Write 2 lines of text at the bottom of the screen
+		;0000000001111111111222222222233333333334
+		;1234567890123456789012345678901234567890
+	text	"                                        "
+	textz	"                                        "
+
+;*---------------------------
+;* Load bin list from catalog
+;*---------------------------
+
+	LDA	#4
+	STA	MON_CV
+	lda	#0
+	sta	OBJNUM
+	lda	#1			; Começar no binário 1, pois o 0 somos nós mesmos (BB)
+	sta	BIN_COUNT
+	sec				; Keeps the drive on (used by CB2K_ENTRY_SET)		
+@again:	
+	SYS	CB2K_FILE_SET
+	bcc	@noerror
+	beq	@acabou			; Z=0. End Of Catalog.
+					; If Z=1, deleted file. Ignore.
+	bne	@next			; Branch always
+@noerror:
+	SYS	CB2K_FILE_GET
+	ldy	#CB2K_FILE_TYPE
+	lda	(CB2K_FILE), y
+	and	#$7F	; #~CB2K_FILE_TYPE_LOCK_MASK
+	cmp	#CB2K_FILE_TYPE_BIN_ID
+	bne	@next
+	jsr	@PRINT_FILE_ENTRY
+@next:
+	inc	BIN_COUNT
+	lda	BIN_COUNT
+	sec				; Keeps the drive on (used by CB2K_ENTRY_SET)
+	bcs	@again			; Branch always
+@PRINT_FILE_ENTRY:
+	lda	#8
+	sta	MON_CH
+	ldx	#30			; display the filename
+	ldy	#CB2K_FILE_NAME
+:
+	lda	(CB2K_FILE), y
+	jsr	DSP_HGR_CHAR
+	iny
+	dex
+	bne	:-
+	LDA	#4			; Imprime tamanho do arquivo (em setores)
+	STA	MON_CH
+	LDA	(CB2K_FILE), y		; length of bin file in sectors (low)
+	STA	TEMPLOC
+	INY
+	LDA	(CB2K_FILE), y		; length of bin file in sectors (high)
+	STA	TEMPLOC+1
+	JSR	DSP_3_DIGITS		; display length
+	LDA	#0			; display the letter for this bin file
+	STA	MON_CH
+	LDA	#'[' | $80
+	JSR	DSP_HGR_CHAR
+	LDA	OBJNUM
+	CLC
+	ADC	#'A' | $80
+	JSR	DSP_HGR_CHAR
+	LDA	#']' | $80
+	JSR	DSP_HGR_CHAR
+	inc	MON_CV
+	ldy	OBJNUM			; Salva índice do catálogo na tabela de entradas de binários
+	lda	BIN_COUNT
+	sta	BININDEX, y
+	iny
+	sty	OBJNUM
+	cpy	#14			; Máximo de 14 entradas
+	bcc	@next
+@acabou:
+	SYS	CB2K_FINISH
+	LDA	#$C0			; letter for the last bin file
+	ORA	OBJNUM
+	STA	OBJNUM
+; Tirei a exibicao de setores livres e drive/slot
+	LDA	#19
+	STA	MON_CV
+	LDA	#0
+	STA	MON_CH
+	JSR	DSP_HGR_STR
+	textrz	"  Press the SPACE key for about screen"
+
+	JSR	DSP_HGR_STR
+	textz	"Use keys A through "
+
+	LDA	OBJNUM			; display last usable key
+	JSR	DSP_HGR_CHAR
+	INC	OBJNUM
+	JSR	DSP_HGR_STR
+	textz	" to select your ware"
+
+;* Draw a big red line (before the 2 last lines of text)
+
+	LDA	#172			; last line
+	STA	TEMPLOC
+@looprl:
+	LDY	TEMPLOC
+	LDA	HGR_DATAL,Y
+	STA	PTRL
+	LDA	HGR_DATAH,Y
+	STA	PTRH
+	LDX	#20			; (even + odd) *20 = 40 bytes (1 line)
+	LDY	#0
+:
+	LDA	#$AA			; even
+	STA	(PTRL),Y
+	INY
+	LDA	#$D5			; odd
+	STA	(PTRL),Y
+	INY
+	DEX
+	BNE	:-
+	DEC	TEMPLOC			; previous part of the 'big' red line
+	LDA	TEMPLOC
+	CMP	#171
+	BCS	@looprl
+
+
+;*-------------------------------
+;* Process animation and wait
+;* for any key
+;*-------------------------------
+
+	JSR	INIT_ANIM		; init animation
+
+KEY_PROCESS:
+	JSR	ANIMATION		; animation for the 40 columns
+	jsr	INKEY			; key pressed?
+	bpl	KEY_PROCESS		; no
+	CMP	#$E0
+	BCC	:+
+	SBC	#$20
+:
+	CMP	#$8D			; return?
+	BNE	:+			; no
+	JMP	REFRESH			; go to scan the new floppy disk
+:
+	CMP	#$9B			; esc?
+	BNE	:+			; no
+	JSR	MON_SETKBD		; return to basic
+	JSR	MON_SETVID
+	JSR	MON_INIT
+	JSR	MON_HOME
+	JMP	APPLESOFT_START_WARM
+:
+
+	CMP	#' ' | $80		; space?
+	BNE	BIN_FILE_SELT		; no
+	jmp	TELA_ABOUT
+
+;*-------------------------------
+;* Bin file selection
+;*-------------------------------
+
+BIN_FILE_SELT:
+	CMP	#'A' | $80
+	BCC	KEY_PROCESS		; out of range
+
+	CMP	OBJNUM			; last letter
+	BCS	KEY_PROCESS		; out of range
+
+;* Bin file selected.
+
+;* Clear HGR screen (up and down from middle of screen)
+	sec
+	sbc	#'A' | $80		; 'A' = 0, 'B' = 1, etc
+	pha				; save bin index
+	lda	#95
+	sta	HGRCLRU
+	sta	HGRCLRD
+@loop:
+	LDX	HGRCLRU			; pointer for line (up)
+	LDA	HGR_DATAL, X
+	STA	PTRL
+	LDA	HGR_DATAH,X
+	STA	PTRH
+
+	LDY	#39			; clear that line (up)
+	LDA	#0
+:
+	STA	(PTR), Y
+	DEY
+	BPL	:-
+	STX	SOUND_VAR		; for sound routine
+	JSR	SOUND
+	LDX	HGRCLRD			; pointer for line (down)
+	LDA	HGR_DATAL,X
+	STA	PTRL
+	LDA	HGR_DATAH,X
+	STA	PTRH
+	LDY	#39			; clear that line (down)
+	LDA	#0
+:
+	STA	(PTRL),Y
+	DEY
+	BPL	:-
+	STX	SOUND_VAR		; for sound routine
+	JSR	SOUND
+	INC	HGRCLRU			; previous line (up)
+	DEC	HGRCLRD			; next line (down)
+	BPL	@loop			; clear the next 2 line
+
+;* Clear TXT screen and display "wait" message
+
+	JSR	MON_SETKBD
+	JSR	MON_SETVID
+	JSR	MON_INIT
+	JSR	MON_HOME
+	LDA	#12
+	STA	MON_CV
+	LDA	#10
+	STA	MON_CH
+	JSR	DSP_TXT_STR
+	textz	"PREPARE YOURSELF..."
+
+;* Load bin file
+
+	pla
+	tay
+	lda	BININDEX, y		; Carrega índice do catálogo para o binário selecionado
+	clc
+	SYS	CB2K_FILE_SET
+	bcs	@erro
+	SYS	CB2K_FILE_RUN		; Nunca retorna
+@erro:
+	jmp	@erro			; Loop infinito
+
+;*-------------------------------
+;* Play a sound
+;*-------------------------------
+
+SOUND:
+	LDY	#7
+@loop:
+	LDX	SOUND_VAR		; variable value
+:
+	DEX
+	BNE	:-
+	BIT	HW_SPEAKER
+	LDX	#8
+:
+	DEX
+	BNE	:-
+	BIT	HW_SPEAKER
+	DEY
+	BNE	@loop
+	RTS
+
+;*-------------------------------
+;* Init HGR screen
+;*-------------------------------
+
+;* Clear HGR
+
+INIT_SCREEN:
+	LDA	#>$2000			; clear memory space from $2000 to $3FFF
+	STA	PTRH
+	LDY	#0
+	sty	PTRL
+@loop:
+	TYA				; acc=0
+:
+	STA	(PTR), y
+	INY
+	BNE	:-
+	INC	PTRH
+	LDA	PTRH
+	CMP	#>$4000			; end?
+	BNE	@loop
+	BIT	HW_TXTCLR		; set HGR mode on (TK2000 is Set Color Mode)
+	BIT	HW_HIRES
+	BIT	HW_MIXCLR		; TK2000 is Motor A Off (do not import for us)
+	BIT	HW_PAGE1
+	rts
+
+;*-------------------------------
+;* Init animation
+;*-------------------------------
+
+INIT_ANIM:
+	LDX	#39			; 40 columns
+:
+	LDA	STARS_RF_LOOP,X		; copy # of loops from ref table
+	STA	STARS_WK_LOOP,X		; to work table
+
+	LDA	STARS_POS_Y,X		; line # for this column (where the star must be written)
+	TAY
+	LDA	HGR_DATAL,Y		; HGR pointer
+	STA	PTRL
+	LDA	HGR_DATAH,Y
+	STA	PTRH
+	TXA
+	TAY
+	LDA	(PTRL),Y		; save the byte of the screen where the star
+	STA	BEFORE_STAR,X		; will be written
+	DEX				; previous column
+	BPL	:-
+
+	RTS
+
+;*-------------------------------
+;* Process the 40 stars
+;*-------------------------------
+
+;* Animation main loop
+
+ANIMATION:
+	LDX	#39			; columns from right to left
+:
+	LDY	STARS_WK_LOOP, X	; remaining number of loops -1
+	INC	RANDOM_DELAY
+	DEY
+	BEQ	@ANIM_1_STAR		; time to display it
+
+	TYA				; dec number of loops for that star
+	STA	STARS_WK_LOOP, X
+@ANIMATION_LOOP:
+	DEX				; previous column
+	BPL	:-			; not finished
+	RTS
+
+;*-------------------------------
+;* Process one star
+;*-------------------------------
+
+@ANIM_1_STAR:
+	LDA	STARS_RF_LOOP,X		; init byte (work table) for next time
+	STA	STARS_WK_LOOP,X		; use the byte from the reference table
+					; (number of loops)
+
+	LDY	STARS_POS_Y,X		; HGR    pointer for the Y position of the
+	LDA	HGR_DATAL,Y		; star
+	STA	PTRL
+	LDA	HGR_DATAH,Y
+	STA	PTRH
+
+	TXA
+	TAY
+	LDA	BEFORE_STAR,X		; poke    the value which was on the screen
+	STA	(PTRL),Y		; before displaying the star
+					; = delete the star from the screen
+
+	LDY	STARS_POS_Y,X		; next    move of the star
+	INY
+	CPY	#192			; out of screen?
+	BCS	@STAR_AT_TOP		; yes
+
+	TYA				; save the new position of the star
+	STA	STARS_POS_Y,X
+	LDA	HGR_DATAL,Y		; and prepare the pointer for the next
+	STA	PTRL			; write
+	LDA	HGR_DATAH,Y
+	STA	PTRH
+
+	TXA
+	TAY
+	LDA	STARS_POS_Y,X		; is Y    position = $1F or $3F or $5F or $7F
+	AND	#%00011111		;    or $9F or $BF?
+	CMP	#%00011111
+	BNE	:+			; no
+
+	LDA	STARS_BYT_VAL,X		; horizontal    movement of the star
+	EOR	#%00011000		;    + or - 1 bit (switch on/off bits 3 and 4)
+	STA	STARS_BYT_VAL,X		; save the byte with    star inside
+:
+	LDA	(PTRL),Y		; save the screen byte before writing the star
+	STA	BEFORE_STAR,X
+	LDA	STARS_BYT_VAL,X		; merge the star    with the background
+	ORA	(PTRL),Y
+	STA	(PTRL),Y		; and display it
+	JMP     @ANIMATION_LOOP		; return to the animation's main loop
+
+;*-------------------------------
+;* The star is out of the screen
+;* (bottom)
+;* Init the next star which will
+;* appear at the top of the
+;* screen (same column)
+;*-------------------------------
+
+@STAR_AT_TOP:
+	LDA	#0			; the next Y pos of the star
+	STA	STARS_POS_Y,X
+	TAY
+	LDA	HGR_DATAL,Y		; get HGR pointer
+	STA	PTRL
+	LDA	HGR_DATAH,Y
+	STA	PTRH
+
+	TXA
+	TAY
+	LDA	(PTRL),Y		; init: save current byte of the HGR screen
+	STA	BEFORE_STAR,X
+
+	LDA	STARS_BYT_VAL,X		; merge star    and background
+	ORA	(PTRL),Y
+	STA	(PTRL),Y
+
+;* And now set a delay (=speed) for that star
+;* The same value will be used from up to down
+
+	INC	RANDOM_DELAY
+	LDA	RANDOM_DELAY		; use a part of that value
+	AND	#%00011111		;    avoid a too long delay
+	BNE	:+			; keep that value
+	LDA	#15			; delay=0 not allowed. Set this one
+	LDY	#1
+:
+	STA	STARS_WK_LOOP,X
+	STA	STARS_RF_LOOP,X		; replace original reference
+
+	ASL				; the delay is also used for the sound routine
+	ASL
+	ASL
+	STA	@som_var+1
+	TXA
+	PHA
+
+;* Sound routine
+
+	LDY	#9
+@som_var:
+	LDX	#1
+:
+	DEX
+	BNE	:-
+
+	BIT	HW_SPEAKER
+	LDX	#6
+:
+	DEX
+	BNE	:-
+
+	BIT	HW_SPEAKER
+	DEY
+	BNE	@som_var
+
+	PLA
+	TAX
+	JMP     @ANIMATION_LOOP		; return to animation's main loop
+
+; Tela sobre
+TELA_ABOUT:
+	jsr	INIT_SCREEN
+	lda	#1
+	ldy	#0
+	sta	MON_CV
+	sty	MON_CH
+	jsr	DSP_HGR_STR
+		;0000000001111111111222222222233333333334
+		;1234567890123456789012345678901234567890
+	textr	"Beautiful Boot - Original by Mini Appler"
+	textr	"This version is made by Fabio Belavenuto"
+	textr	"  <http://www.fabio.belavenuto.nom.br>  "
+	textr	"using the CB2k software by Lisias Toledo"
+	textr	"    <http://apple2.lisias.net/CB2k>     "
+	textr	" CB2k is based on original CompatiBoot  "
+	textr	"        by Raven from C700 Club         "
+	textr	"   <http://bb2k.net/compatiboot.html>   "
+	textr	""
+	textr	"   This version of Beautiful Boot is    "
+	textr	"universal, works on a AppleII and TK2000"
+	textr	""
+	textz	"         Press a key for exit.          "
+
+:
+	jsr	INKEY
+	bpl	:-
+	jmp	REFRESH
+
+;*-------------------------------
+;* Print string on TXT screen
+;*-------------------------------
+
+DSP_TXT_STR:
+	PLA				; restore ptr-1 on the string
+	STA	PTR_BUFFL
+	PLA
+	STA	PTR_BUFFH
+
+	TYA				; save Y and X registers
+	PHA
+	TXA
+	PHA
+	bit	VERSAO_MAQUINA		; Se for TK2000, não chamamos VTAB
+	bpl	:+
+	JSR	MON_VTAB
+:
+	LDY	#0
+@loop:
+	INC	PTR_BUFFL		; next character of the string (or 1st one)
+	BNE	:+			; low only
+	INC	PTR_BUFFH		; high
+:
+	LDA	(PTR_BUFF), Y		; get character
+	BEQ	@fim			; end of string
+	JSR	MON_COUT		; display it on txt screen
+	JMP	@loop			; next character
+
+@fim:
+	PLA				; restore X and Y registers
+	TAX
+	PLA
+	TAY
+	LDA	PTR_BUFFH		; ptr (after string) on stack
+	PHA
+	LDA	PTR_BUFFL
+	PHA
+	RTS				; return to sender
+
+;*-------------------------------
+;* Display a character on HGR
+;* screen
+;*-------------------------------
+
+;* In : Acc = "character"
+
+DSP_HGR_CHAR:
+	STY	MON_YREG		; save Y
+	STX	MON_XREG		; save X
+	LDX	#0			; init offset (high) for font addr
+	STX	TEMPLOC
+	CMP	#$8D			; return?
+	BEQ	@proxlin		; yes
+	CMP     #' ' | $80		; space?
+	BCC     @fim			; yes, then exit
+
+	SEC				; [" ","~"] -> [0,94]
+	SBC	#' ' | $80
+	ASL				; *8 to be on the first byte
+	ROL	TEMPLOC			; and prepare offset (high)
+	ASL
+	ROL	TEMPLOC
+	ASL
+	ROL	TEMPLOC
+	ADC     #<FONT			; font pointer (low)
+	STA     @loop+1
+	LDA     TEMPLOC			; +offset (high)
+	ADC     #>FONT
+	STA     @loop+2
+
+;* Calc the Y position of the 1st line where to write
+;* the first byte of the character
+
+	LDA	MON_CV			; line # *8
+	ASL
+	ASL
+	ASL
+	TAY
+	LDA	HGR_DATAL, Y
+	STA	PTRL
+	LDA	HGR_DATAH, Y
+	STA	PTRH
+	LDA	MON_CH
+	TAY
+
+;* Write the full character
+
+	LDX	#7			; 8 bytes for 1 full character
+@loop:
+	LDA	$FFFF, X
+	STA	(PTR), Y
+	LDA     #>$0400			; calc position for the byte above
+	ADC     PTRH
+	STA	PTRH
+	DEX
+	BPL	@loop
+
+;* Position for the next character of the string
+
+	INC	MON_CH
+	LDA	MON_CH
+	CMP	#40			; out of line?
+	BCC	@fim			; no
+
+@proxlin:
+	LDA	#0			; init abscissa
+	STA	MON_CH
+	INC	MON_CV			; next line
+	lda	MON_CV
+	cmp	#24			; out of screen?
+	bcc	@fim			; no
+	lda	#0
+	sta	MON_CV
+
+@fim:
+	LDX	MON_XREG		; restore X
+	LDY	MON_YREG		; restore Y
+	RTS
+
+;*-------------------------------
+;* Print string on HGR screen
+;*-------------------------------
+
+DSP_HGR_STR:
+	PLA				; get string addr-1
+	STA	PTR_BUFFL
+	PLA
+	STA	PTR_BUFFH
+	TYA				; save Y
+	PHA
+	TXA				; save X
+	PHA
+
+	LDY	#0
+
+@loop:
+	INC	PTR_BUFFL
+	BNE	:+
+	INC	PTR_BUFFH
+:
+	LDA	(PTR_BUFF),Y
+	BEQ	@fim			; end of string
+	JSR	DSP_HGR_CHAR		; display this character
+	JMP	@loop			; next char
+
+@fim:
+	PLA				; restore X
+	TAX
+	PLA				; restore Y
+	TAY
+	LDA	PTR_BUFFH		; addr of return
+	PHA
+	LDA	PTR_BUFFL
+	PHA
+	RTS				; return to sender (and skip string)
+
+;*-------------------------------
+;* Display a 3 digits number
+;*-------------------------------
+
+;* In : TEMPLOC   = number (low)
+;*      TEMPLOC+1 = number (high)
+
+DSP_3_DIGITS:
+	LDA	#0			; init result
+	STA	TEMPLOC2+1
+	STA	TEMPLOC2
+
+;* Calc the 3 digits number (decimal mode)
+
+	SED
+:
+	LDA	#1			; add 1 to result
+	ADC	TEMPLOC2
+	STA	TEMPLOC2
+	LDA	#0			; carry over
+	ADC	TEMPLOC2+1
+	STA	TEMPLOC2+1
+	DEC	TEMPLOC			; until end of low
+	BNE	:-			; loop for low
+	DEC	TEMPLOC+1		; and until end of high
+	BPL	:-			; loop for high
+	CLD
+
+;* Display the 3 digits
+
+DISP3D:
+	LDA	TEMPLOC2+1		; first digit
+	AND	#%00001111
+	ORA	#'0' | $80
+	STA	@numbers
+	LDA	TEMPLOC2		; 2nd digit
+	PHA
+	LSR				; erase 3th digit info
+	LSR
+	LSR
+	LSR
+	ORA	#'0' | $80
+	STA	@numbers+1
+	PLA				; 3th digit
+	AND	#%00001111		; erase 2nd digit info
+	ORA	#'0' | $80
+	STA	@numbers+2
+	JSR	DSP_HGR_STR		; display the 3 digits
+@numbers:
+	text	"000"
+	.byte	0
+	RTS
+
+;*-------------------------------
+;* Rotina de leitura do teclado
+;* Deve ler diferente para o
+;* apple2 e o tk2000
+;*-------------------------------
+INKEY:
+	bit	VERSAO_MAQUINA		; É TK2000?
+	bpl	TK2000_INKEY		; Sim, pulamos para a rotina correta
+					; Aqui é para o Apple2:
+	lda	HW_KEYBOARD_IN		; key pressed?
+	bpl	:+
+	bit	HW_KEYBOARD_STROBE	; limpa última tecla pressionada (Garante N=1)
+:
+	rts
+
+;*-------------------------------
+;* Código abaixo otimizado pelo
+;* Lisias, agora a rotina está
+;* rápida
+;*-------------------------------
+TK2000_INKEY:
+	lda	#$FF
+	sta	TK2K_HW_KEYBOARD_SELECT_ROW
+	lda	TK2K_HW_KEYBOARD_READ
+	and	#$7F
+	beq	:+			; Nenhuma tecla pressionada
+	bne	INKEY_TK2000_ORIGINAL
+:
+	lda	#0			; Garante N=0
+	rts
+
+INKEY_TK2000_ORIGINAL:
+	lda	$26			; Copiada do manual do tk2000
+	pha				; Salva endereços da página 0 que são mudados
+	lda	$27			; pela rotina TK2K_MON_SCAN1, restaurando-os no final
+	pha
+	lda	$06
+	pha
+	lda	$07
+	pha
+	lda	$08
+	pha
+	lda	$09
+	pha
+	jsr	TK2K_MON_SCAN1
+	pha
+	txa
+	pha
+	tsx
+	txa
+	eor	#$80
+	tax
+	pla
+	sta	$100,x
+	inx
+	pla
+	sta	$100,x
+	pla
+	sta	$09
+	pla
+	sta	$08
+	pla
+	sta	$07
+	pla
+	sta	$06
+	pla
+	sta	$27
+	pla
+	sta	$26
+	lda	$100,x
+	pha
+	dex
+	lda	$100,x
+	tax
+	pla
+	rts
+
+
+;*-------------------------------
+;* Tabela com a relação entre 
+;* índice do catálogo e índice
+;* do binário (14 índices)
+;*-------------------------------
+BININDEX:
+	.res	14
+
+;*-------------------------------
+;* Datas for the stars
+;*-------------------------------
+
+;* Work table:
+;* Number of main loops before displaying each star
+;* A copy of the reference table and then DEC byte/star
+
+STARS_WK_LOOP:
+	.res	40
+
+BEFORE_STAR:
+	.res	40
+
+;* Reference table:
+;* Number of main loops before displaying each star
+;* 1st run: display stars from left to right because
+;*          of the incremental value (1 to 40)
+;* A new value is produced for each byte when the
+;* corresponding star begins a new cycle (up -> down)
+
+STARS_RF_LOOP:
+	.byte	$01,$02,$03,$04,$05,$06,$07,$08
+	.byte	$09,$0A,$0B,$0C,$0D,$0E,$0F,$10
+	.byte	$11,$12,$13,$14,$15,$16,$17,$18
+	.byte	$19,$1A,$1B,$1C,$1D,$1E,$1F,$20
+	.byte	$21,$22,$23,$24,$25,$26,$27,$28
+
+;* Bytes for the 40 stars displayed on the screen
+;* 1 star for each column. Each byte is "poked" on the
+;* HGR screen (and contains 1 star)
+
+STARS_BYT_VAL:
+	.byte	$88,$08,$10,$10,$88,$08,$10,$88
+	.byte	$08,$10,$10,$10,$08,$10,$08,$10
+	.byte	$08,$08,$10,$08,$10,$10,$10,$88
+	.byte	$10,$08,$88,$10,$08,$08,$88,$08
+	.byte	$08,$10,$88,$10,$10,$08,$10,$88
+
+;* 40 * Lines # (for every column)
+;* Current position of each star
+;* The following value are for the init screen
+
+STARS_POS_Y:
+	.byte	$14,$01,$7B,$64,$32,$1E,$A9,$09
+	.byte	$81,$39,$4E,$B2,$20,$BE,$50,$3C
+	.byte	$59,$70,$26,$5E,$03,$17,$4B,$3C
+	.byte	$A5,$91,$05,$46,$8C,$2A,$76,$5F
+	.byte	$17,$3C,$84,$64,$43,$35,$99,$2F
+
+;*-------------------------------
+;* Addresses of each line of the
+;* HGR screen
+;*-------------------------------
+
+;* Low address
+
+HGR_DATAL:
+	.byte   $00,$00,$00,$00,$00,$00,$00,$00
+	.byte   $80,$80,$80,$80,$80,$80,$80,$80
+	.byte   $00,$00,$00,$00,$00,$00,$00,$00
+	.byte   $80,$80,$80,$80,$80,$80,$80,$80
+	.byte   $00,$00,$00,$00,$00,$00,$00,$00
+	.byte   $80,$80,$80,$80,$80,$80,$80,$80
+	.byte   $00,$00,$00,$00,$00,$00,$00,$00
+	.byte   $80,$80,$80,$80,$80,$80,$80,$80
+	.byte   $28,$28,$28,$28,$28,$28,$28,$28
+	.byte   $A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte   $28,$28,$28,$28,$28,$28,$28,$28
+	.byte   $A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte   $28,$28,$28,$28,$28,$28,$28,$28
+	.byte   $A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte   $28,$28,$28,$28,$28,$28,$28,$28
+	.byte   $A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte   $50,$50,$50,$50,$50,$50,$50,$50
+	.byte   $D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte   $50,$50,$50,$50,$50,$50,$50,$50
+	.byte   $D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte   $50,$50,$50,$50,$50,$50,$50,$50
+	.byte   $D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte   $50,$50,$50,$50,$50,$50,$50,$50
+	.byte   $D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+
+;* High address
+
+HGR_DATAH:
+	MAKEHGRHITBL $20
+
+;*-------------------------------
+;* Datas for the characters
+;*-------------------------------
+
+FONT:
+	.byte	$80,$80,$80,$80,$80,$80,$80,$80		; space
+	.byte	$80,$87,$87,$80,$87,$87,$87,$87		; !
+	.byte	$80,$80,$80,$80,$B6,$A4,$B6,$B6		; "
+	.byte	$80,$9E,$9E,$BF,$9E,$BF,$9E,$9E		; #
+	.byte	$80,$8C,$9F,$B0,$9E,$83,$BE,$8C		; $
+	.byte	$80,$BB,$BB,$86,$8C,$98,$B7,$B7		; %
+	.byte	$80,$AE,$9B,$BB,$8F,$86,$8F,$86		; &
+	.byte	$80,$80,$80,$80,$8C,$88,$8C,$8C		; '
+	.byte	$80,$B8,$9C,$8E,$8E,$8E,$9C,$B8		; (
+	.byte	$80,$87,$8E,$9C,$9C,$9C,$8E,$87		; )
+	.byte	$80,$88,$AA,$9C,$BE,$9C,$AA,$88		; *
+	.byte	$80,$80,$8C,$8C,$BF,$BF,$8C,$8C		; +
+	.byte	$83,$86,$87,$80,$80,$80,$80,$80		; ,
+	.byte	$80,$80,$80,$80,$BE,$BE,$80,$80		; -
+	.byte	$80,$87,$87,$80,$80,$80,$80,$80		; .
+	.byte	$80,$83,$87,$8E,$9C,$B8,$F0,$E0		; /
+	.byte	$80,$9E,$B3,$B3,$B3,$B3,$B3,$9E		; 0
+	.byte	$80,$BF,$8C,$8C,$8C,$8F,$8E,$8C		; 1
+	.byte	$80,$BF,$BF,$8E,$B8,$B3,$BF,$9E		; 2
+	.byte	$80,$9E,$BF,$B0,$BE,$B0,$BF,$9E		; 3
+	.byte	$80,$B0,$B0,$BF,$B3,$B6,$BC,$B8		; 4
+	.byte	$80,$9E,$BF,$B0,$9F,$83,$BF,$BF		; 5
+	.byte	$80,$9E,$BF,$B3,$9F,$83,$BF,$9E		; 6
+	.byte	$80,$8C,$8C,$8C,$98,$B0,$BF,$BF		; 7
+	.byte	$80,$9E,$BF,$B3,$9E,$B3,$BF,$9E		; 8
+	.byte	$80,$9E,$BF,$B0,$BE,$B3,$BF,$9E		; 9
+	.byte	$80,$9C,$9C,$80,$80,$9C,$9C,$80		; :
+	.byte	$83,$86,$87,$80,$80,$87,$87,$80		; ;
+	.byte	$80,$F0,$B8,$9C,$8E,$9C,$B8,$F0		; <
+	.byte	$80,$80,$80,$BE,$80,$BE,$80,$80		; = WAS BUGGED!! (same data bytes as '-')
+	.byte	$80,$87,$8E,$9C,$B8,$9C,$8E,$87		; >
+	.byte	$80,$8C,$80,$8C,$98,$B3,$BF,$9E		; ?
+	.byte	$80,$BE,$83,$BB,$BB,$B3,$B3,$9E		; @
+	.byte	$80,$B3,$B3,$BF,$BF,$B3,$BF,$9E		; A
+	.byte	$80,$9F,$BF,$B3,$9F,$B3,$BF,$9F		; B
+	.byte	$80,$9E,$BF,$B3,$83,$B3,$BF,$9E		; C
+	.byte	$80,$9F,$BF,$B3,$B3,$B3,$BF,$9F		; D
+	.byte	$80,$BF,$BF,$83,$9F,$83,$BF,$BF		; E
+	.byte	$80,$83,$83,$9F,$9F,$83,$BF,$BF		; F
+	.byte	$80,$9E,$BF,$B3,$BB,$83,$BF,$9E		; G
+	.byte	$80,$B3,$B3,$BF,$BF,$B3,$B3,$B3		; H
+	.byte	$80,$BF,$BF,$8C,$8C,$8C,$BF,$BF		; I
+	.byte	$80,$9E,$BF,$B3,$B0,$B0,$B0,$B0		; J
+	.byte	$80,$B3,$BB,$9F,$8F,$9F,$BB,$B3		; K
+	.byte	$80,$BF,$BF,$83,$83,$83,$83,$83		; L
+	.byte	$80,$B3,$B3,$B3,$B3,$B3,$BF,$B3		; M
+	.byte	$80,$B3,$B3,$BB,$BF,$B7,$B3,$B3		; N
+	.byte	$80,$9E,$BF,$B3,$B3,$B3,$BF,$9E		; O
+	.byte	$80,$83,$83,$9F,$BF,$B3,$BF,$9F		; P
+	.byte	$80,$AE,$93,$AB,$A3,$A3,$BF,$9E		; Q
+	.byte	$80,$B3,$BB,$9F,$BF,$B3,$BF,$9F		; R
+	.byte	$80,$9E,$B3,$B0,$9E,$83,$B3,$9E		; S
+	.byte	$80,$8C,$8C,$8C,$8C,$8C,$BF,$BF		; T
+	.byte	$80,$9E,$BF,$B3,$B3,$B3,$B3,$B3		; U
+	.byte	$80,$8C,$9E,$B3,$B3,$B3,$B3,$B3		; V
+	.byte	$80,$B3,$BF,$B3,$B3,$B3,$B3,$B3		; W
+	.byte	$80,$B3,$B3,$9E,$8C,$9E,$B3,$B3		; X
+	.byte	$80,$8C,$8C,$8C,$9E,$B3,$B3,$B3		; Y
+	.byte	$80,$BF,$BF,$86,$8C,$98,$BF,$BF		; Z
+	.byte	$80,$BC,$BC,$8C,$8C,$8C,$BC,$BC		; [
+	.byte	$80,$E0,$F0,$B8,$9C,$8E,$87,$83		; backslash
+	.byte	$80,$8F,$8F,$8C,$8C,$8C,$8F,$8F		; ]
+	.byte	$80,$80,$80,$80,$80,$BF,$9E,$8C		; exp
+	.byte	$80,$FF,$FF,$80,$80,$80,$80,$80		; _
+	.byte	$80,$80,$80,$80,$80,$98,$8C,$86		;
+	.byte	$80,$BE,$B3,$BE,$B0,$9E,$80,$80		; a
+	.byte	$80,$9F,$B3,$B3,$B3,$9F,$83,$83		; b
+	.byte	$80,$9E,$B3,$83,$B3,$9E,$80,$80		; c
+	.byte	$80,$BE,$B3,$B3,$B3,$BE,$B0,$B0		; d
+	.byte	$80,$9E,$83,$9F,$B3,$9E,$80,$80		; e
+	.byte	$80,$86,$86,$86,$9F,$86,$B6,$9C		; f
+	.byte	$9E,$B0,$BE,$B3,$B3,$9E,$80,$80		; g
+	.byte	$80,$B3,$B3,$B3,$B3,$9F,$83,$83		; h
+	.byte	$80,$8C,$8C,$8C,$8C,$80,$8C,$80		; i
+	.byte	$9E,$B3,$B3,$B0,$B0,$B0,$80,$B0		; j
+	.byte	$80,$B3,$9B,$8F,$9B,$B3,$83,$83		; k
+	.byte	$80,$9E,$8C,$8C,$8C,$8C,$8C,$8E		; l
+	.byte	$80,$B3,$B3,$B3,$BF,$B3,$80,$80		; m
+	.byte	$80,$B3,$B3,$B3,$B3,$9F,$80,$80		; n
+	.byte	$80,$9E,$B3,$B3,$B3,$9E,$80,$80		; o
+	.byte	$83,$83,$9F,$B3,$B3,$9F,$80,$80		; p
+	.byte	$B0,$B0,$BE,$B3,$B3,$BE,$80,$80		; q
+	.byte	$80,$83,$83,$83,$B3,$9F,$80,$80		; r
+	.byte	$80,$9E,$B0,$9E,$83,$9E,$80,$80		; s
+	.byte	$80,$9C,$B6,$86,$86,$9F,$86,$86		; t
+	.byte	$80,$BE,$B3,$B3,$B3,$B3,$80,$80		; u
+	.byte	$80,$8C,$9E,$B3,$B3,$B3,$80,$80		; v
+	.byte	$80,$B3,$BF,$B3,$B3,$B3,$80,$80		; w
+	.byte	$80,$B3,$9E,$8C,$9E,$B3,$80,$80		; x
+	.byte	$9E,$B0,$BE,$B3,$B3,$B3,$80,$80		; y
+	.byte	$80,$BF,$86,$8C,$98,$BF,$80,$80		; z
+	.byte	$80,$9C,$9E,$86,$87,$86,$9E,$9C		; {
+	.byte	$8C,$8C,$8C,$8C,$8C,$8C,$8C,$8C		; |
+	.byte	$80,$8E,$9E,$98,$B8,$98,$9E,$8E		; }
+	.byte	$80,$80,$80,$80,$80,$98,$BF,$86		; ~
