@@ -1,0 +1,39 @@
+
+	.setcpu	"6502"
+
+	.include "sys.def"
+	.include "hw.def"
+
+	.org	$FDB3
+
+	ldx	#0
+:
+	lda	$E000,x			; Copy loader to page 2
+	sta	$0200,x
+	inx
+	bne	:-
+:
+	lda	$E100,x			; Restore page 0 data
+	sta	$00,x
+	inx
+	bne	:-
+:
+	lda	$0300,x			; Save Speed Loading code
+	sta	$E000,x
+	inx
+	bne	:-
+:
+@p1:
+	lda	$C300			; Restore presentation code
+@p2:
+	sta	$0300
+	inc	@p1+1
+	inc	@p2+1
+	bne	:-
+	inc	@p1+2
+	inc	@p2+2
+	lda	@p2+2
+	cmp	#$20
+	bne	:-
+	sta	TK2K_HW_RAM_HIGH_OFF
+; Here is ROM in address $FDED
