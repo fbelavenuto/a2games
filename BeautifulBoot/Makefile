@@ -1,7 +1,7 @@
 # Makefile
 #
-# Uses the dos33fsutils from:
-#  https://github.com/deater/dos33fsprogs
+# Uses the dos33util from:
+#  https://github.com/fbelavenuto/dos33util
 
 SYS = apple2
 
@@ -32,11 +32,11 @@ BBMAKER: $(ODIR)/bbmaker.o
 	$(LD) $(LDFLAGS) -o $@#061000 $^
 
 dsk: bb bbmaker
-	mkdos33fs -d data/tkdos_boot.bin BeautifulBoot.dsk
-	dos33 BeautifulBoot.dsk save data/HELLO#FC0801
-	dos33 BeautifulBoot.dsk save BBMAKER#061000
-	dos33 BeautifulBoot.dsk save BB#064000
-	dos33 BeautifulBoot.dsk save data/CB2K#066000
+	dos33util BeautifulBoot.dsk INIT data/tkdos_boot.bin
+	dos33util BeautifulBoot.dsk save data/HELLO#FC0801
+	dos33util BeautifulBoot.dsk save BBMAKER#061000
+	dos33util BeautifulBoot.dsk save BB#064000
+	dos33util BeautifulBoot.dsk save data/CB2K#066000
 
 $(ODIR):
 	$(MD) $(ODIR)
