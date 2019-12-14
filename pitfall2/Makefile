@@ -29,6 +29,8 @@ OBJS = $(ODIR)/pitfall2.o
 pitfall2: $(OBJS)
 	$(LD) $(LDFLAGS) -o $@#0608F0 $^
 
+$(ODIR):
+	$(MD) $(ODIR)
 
 clean:
 	$(RM) ODIR/* pitfall2#0608F0

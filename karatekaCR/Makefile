@@ -1,6 +1,5 @@
 # Makefile
 #
-# by Fábio Belavenuto
 
 SYS=apple2
 
@@ -14,8 +13,8 @@ MD = mkdir
 
 SDIR = src
 ODIR = obj
-LDIR = ../apple2lib
-IDIR = ../apple2lib/inc
+LDIR = ../../apple2lib
+IDIR = ../../apple2lib/inc
 
 CFLAGS  = -t $(SYS) -O -I$(IDIR) -I.
 AFLAGS  = -t $(SYS) -l $(ODIR)/$(*).lst -I$(IDIR) -I.

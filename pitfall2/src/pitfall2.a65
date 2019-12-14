@@ -906,7 +906,7 @@ INKEY:
 	lda	#$FF
 	sta	$C000
 	lda	$C010
-	and	#~TK2K_HW_TAPE_MASK
+	and	#<~TK2K_HW_TAPE_MASK
 	bne	INKEY_TK2000_ORIGINAL
 	lda	#0			; Nenhuma tecla pressionada
 	clc
