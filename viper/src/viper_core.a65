@@ -84,7 +84,7 @@ Start:
 	jsr	cleanInfoWindow
 	jsr	PRINTMSG07
 @wait:
-	jsr	chkKeyNoWait		; Check if any key is pressed
+	jsr	chkKeyNoWait	; Check if any key is pressed
 	bmi	subDemoMode		; If yes, jump to demo mode
 :
 	inx
@@ -123,7 +123,8 @@ L0CDF:
 	jsr	WAIT
 	dey
 	bne	:-
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
+	sta	HW_KEYBOARD_STROBE		; Clear keyboard flag
 L0CF3:
 	lda	#$00
 	sta	flgMouseVisible
@@ -270,7 +271,7 @@ L0E01:					; Viper eat mouse
 	beq	L0E80
 	lda	flgDemoMode
 	bne	:+
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
 :
 	lda	#$00
 	sta	flgMouseVisible
@@ -898,7 +899,7 @@ L1239:
 	jmp	L122B
 
 subConfigFactors:
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
 	ldy	#NMSG10
 	jsr	subPrintMsg
 	lda	cfgViperSpeed
@@ -918,7 +919,7 @@ subConfigFactors:
 	sta	viperCurSpeed
 	bne	subConfigFactors
 L12A1:
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
 	ldy	#NMSG06
 	jsr	subPrintMsg
 	lda	cfgMouseSpeed
@@ -938,7 +939,7 @@ L12A1:
 	sta	mouseDelayVal
 	bcs	L12A1
 L12CC:
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
 	ldy	#NMSG11
 	jsr	subPrintMsg
 	lda	cfgObstacles
@@ -1009,7 +1010,7 @@ subGetPlayerName:
 	jsr	MON_COUT
 	jmp	@waitKey
 @end:
-	jsr	subClrsubPrintMsgsInfs
+	jsr	subClrPrintMsgsInfs
 	rts
 
 ;------------------------------------------------------------------------------
@@ -1083,14 +1084,14 @@ chkKeyWait:
 :
 	lda	HW_KEYBOARD_IN
 	bpl	:-
-	bit	HW_KEYBOARD_STROBE
+	sta	HW_KEYBOARD_STROBE
 	rts
 
 ;------------------------------------------------------------------------------
 chkKeyNoWait:
 	bit	HW_KEYBOARD_IN
 	bpl	:+
-	bit	HW_KEYBOARD_STROBE
+	sta	HW_KEYBOARD_STROBE
 :
 	rts
 
@@ -1103,7 +1104,7 @@ readJoyKbd:
 :
 	lda	HW_KEYBOARD_IN
 	bpl	@exit
-	bit	HW_KEYBOARD_STROBE
+	sta	HW_KEYBOARD_STROBE
 @exit:
 	rts
 @readPdl:
@@ -1179,7 +1180,7 @@ subReadPaddles:
 @exit:
 	rts
 
-subClrsubPrintMsgsInfs:					; Rotina que imprime SCORE e outras informações na janela de texto
+subClrPrintMsgsInfs:					; Rotina que imprime SCORE e outras informaÃ§Ãµes na janela de texto
 	jsr	cleanInfoWindow
 subPrintMsgsInfs:
 	jsr	PRINTMSG02

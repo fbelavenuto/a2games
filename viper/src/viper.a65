@@ -44,7 +44,7 @@ LASTBYTE	:= $5E
 ;----------------------------------------------------
 
 ;
-; Rotina de descompressão de dados RLE
+; RLE data descompress routine
 ;
 
 ; read a byte and increment source pointer
