@@ -30,19 +30,33 @@ OBJS2 = $(ODIR)/pitfall2.o
 tk2k_ar: $(OBJS1)
 	$(LD) $(LDFLAGS) -o $@#060036 $^
 
-pitfall2: $(OBJS2)
+PITFALL2: $(OBJS2)
 	$(LD) $(LDFLAGS) -o $@#0608FD $^
 
-ct2: tk2k_ar pitfall2
-	$(CT2UTL) pitfall2.ct2 -c
-	$(CT2UTL) pitfall2.ct2 -i -f tk2k_ar#060036 -t PITFII
-	$(CT2UTL) pitfall2.ct2 -i -f pitfall2#0608FD -t PITFII
+ct2: tk2k_ar PITFALL2
+	$(CT2UTL) "Pit Fall II - Lost Caverns(C).ct2" -c
+	$(CT2UTL) "Pit Fall II - Lost Caverns(C).ct2" -i -f tk2k_ar#060036 -t PITFII
+	$(CT2UTL) "Pit Fall II - Lost Caverns(C).ct2" -i -f PITFALL2#0608FD -t PITFII
+#	dos33util "Pit Fall II - Lost Caverns(C).dsk" init data\TKDOS2000.bin
+#	dos33util "Pit Fall II - Lost Caverns(C).dsk" save data\HELLO#FC0801
+#	dos33util "Pit Fall II - Lost Caverns(C).dsk" save PITFALL2#0608FD
+#	ct2utils "Pit Fall II - Lost Caverns(C).ct2" -w -f "Pit Fall II - Lost Caverns(C).wav"
+#	flac -f "Pit Fall II - Lost Caverns(C).wav"
+#	tkbinplay -d -w sine -r 44100 -p 3 -o "Pit Fall II - Lost Caverns(C)_44_S_3.wav" "data\Pit Fall II - Lost Caverns(C).ini"
+#	flac -f "Pit Fall II - Lost Caverns(C)_44_S_3.wav"
+#	tkbinplay -d -w sine -r 44100 -p 4 -o "Pit Fall II - Lost Caverns(C)_44_S_4.wav" "data\Pit Fall II - Lost Caverns(C).ini"
+#	flac -f "Pit Fall II - Lost Caverns(C)_44_S_4.wav"
+#	tkbinplay -d -w sine -r 48000 -p 3 -o "Pit Fall II - Lost Caverns(C)_48_S_3.wav" "data\Pit Fall II - Lost Caverns(C).ini"
+#	flac -f "Pit Fall II - Lost Caverns(C)_48_S_3.wav"
+#	tkbinplay -d -w sine -r 48000 -p 4 -o "Pit Fall II - Lost Caverns(C)_48_S_4.wav" "data\Pit Fall II - Lost Caverns(C).ini"
+#	flac -f "Pit Fall II - Lost Caverns(C)_48_S_4.wav"
+#	$(RM) *.wav
 	
 $(ODIR):
 	$(MD) $(ODIR)
 
 clean:
-	$(RM) $(ODIR)/* tk2k_ar#060036 pitfall2#0608FD
+	$(RM) $(ODIR)/* tk2k_ar#060036 PITFALL2#0608FD *.flac *.dsk *.ct2
 
 $(ODIR)/%.o: $(SDIR)/%.c
 	$(CC) $(CFLAGS) -o $(ODIR)/$(*).a65 $<
