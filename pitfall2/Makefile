@@ -10,7 +10,7 @@ AR = ar65
 CP = cp
 RM = rm -f
 MD = mkdir
-RLE = rlepack
+CT2UTL = ct2utils
 
 SDIR = src
 ODIR = obj
@@ -22,18 +22,27 @@ AFLAGS  = -t $(SYS) -l $(ODIR)/$(*).lst -I$(IDIR) -I.
 LDFLAGS = -C $(LDIR)/_config
 
 
-all: $(ODIR) pitfall2
+all: $(ODIR) ct2
 
-OBJS = $(ODIR)/pitfall2.o
+OBJS1 = $(ODIR)/tk2k_ar.o
+OBJS2 = $(ODIR)/pitfall2.o
 
-pitfall2: $(OBJS)
-	$(LD) $(LDFLAGS) -o $@#0608F0 $^
+tk2k_ar: $(OBJS1)
+	$(LD) $(LDFLAGS) -o $@#060036 $^
 
+pitfall2: $(OBJS2)
+	$(LD) $(LDFLAGS) -o $@#0608FD $^
+
+ct2: tk2k_ar pitfall2
+	$(CT2UTL) pitfall2.ct2 -c
+	$(CT2UTL) pitfall2.ct2 -i -f tk2k_ar#060036 -t PITFII
+	$(CT2UTL) pitfall2.ct2 -i -f pitfall2#0608FD -t PITFII
+	
 $(ODIR):
 	$(MD) $(ODIR)
 
 clean:
-	$(RM) ODIR/* pitfall2#0608F0
+	$(RM) $(ODIR)/* tk2k_ar#060036 pitfall2#0608FD
 
 $(ODIR)/%.o: $(SDIR)/%.c
 	$(CC) $(CFLAGS) -o $(ODIR)/$(*).a65 $<
