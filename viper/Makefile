@@ -11,7 +11,6 @@ AR = ar65
 CP = cp
 RM = rm -f
 MD = mkdir
-RLE = rlepack
 
 SDIR = src
 ODIR = obj
@@ -23,25 +22,20 @@ AFLAGS  = -t $(SYS) -l $(ODIR)/$(*).lst -I$(IDIR) -I.
 LDFLAGS = -C $(LDIR)/_config
 
 
-all: $(ODIR) $(ODIR)/viper_core.rle $(ODIR)/open_screen.rle viper
+all: $(ODIR) dsk
 
-$(ODIR)/viper_core.bin: $(ODIR)/viper_core.o
-	$(LD) $(LDFLAGS) -o $@ $^
+VIPER: $(ODIR)/viper.o
+	$(LD) $(LDFLAGS) -o $@#062000 $^
 
-$(ODIR)/open_screen.bin: $(ODIR)/open_screen.o
-	$(LD) $(LDFLAGS) -o $@ $^
-
-$(ODIR)/viper_core.rle: $(ODIR)/viper_core.bin
-
-$(ODIR)/open_screen.rle: $(ODIR)/open_screen.bin
-
-viper: $(ODIR)/viper.o
-	$(LD) $(LDFLAGS) -o $@#064000 $^
+dsk: VIPER
+	dos33util "Viper.dsk" init data\TKDOS33.bin
+	dos33util "Viper.dsk" save data\HELLO#FC0801
+	dos33util "Viper.dsk" save VIPER#062000
 
 .PHONY: clean
 
 clean:
-	$(RM) $(ODIR)/* viper#064000
+	$(RM) $(ODIR)/* VIPER#062000
 
 $(ODIR):
 	$(MD) $(ODIR)
@@ -52,9 +46,6 @@ $(ODIR)/%.o: $(SDIR)/%.c
 
 $(ODIR)/%.o: $(SDIR)/%.a65
 	$(AS) $(AFLAGS) -o $@ $<
-
-$(ODIR)/%.rle: $(ODIR)/%.bin
-	$(RLE) $< $@
 
 $(ODIR)/%.bin: $(ODIR)/%.o
 	$(LD) $(LDFLAGS) -o $@ $^

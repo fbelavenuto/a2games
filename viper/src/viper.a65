@@ -1,97 +1,1684 @@
 
-	.include "hw.def"
 	.include "apple.equ"
+	.include "monitor.def"
+	.include "macros.def"
+	.include "hw.def"
+	.include "ascii.def"
 
-SRC		:= $5A
-DEST		:= $5C
-LASTBYTE	:= $5E
 
-	.org	$4000
+	HGRADDRBASE = $2000
 
+; Variables in page 0 RAM
+
+	.zeropage
+
+	.org	$02
+TMPVAR1:
+	.res	1
+
+	.org	$0B
+TMPVAR2:
+	.res	1
+
+	.org	$14
+L0014:
+	.res	2
+L0016:
+	.res	2
+L0018:
+	.res	1
+L0019:
+	.res	2
+PTRHISDIR:
+	.res	2
+PTRSCREEN:
+	.res	2
+
+	.org	$5A
+SRC:
+	.res	2
+
+	.code
+	.org	$2000
+	.incbin	"data/OpenScreen.bin"
+
+Start:
+	lda	#0
+	sta	cfgViperSpeed
+	sta	cfgMouseSpeed
+	sta	demoModeCnt
+	sta	demoModeCnt+1
+	sta	flgSoundEnabled
+	sta	flgPdlsOk
+	sta	cfgObstacles
+	sta	currentScore+1
+	sta	currentScore
+	lda	#<subDemoMode
+	sta	SOFTEV
+	lda	#>subDemoMode
+	sta	SOFTEV+1
+	eor	#$A5
+	sta	PWREDUP			; CTRL+RESET protection
+; Initialize High Scores
+	ldx	#$00
+:
+	txa
+	and	#$0F
+	tay
+	lda	tblDefaultScores,Y
+	sta	varHighScores,X
+	inx
+	bne	:-
+; Check is paddles connected
+	jsr	subReadPaddles
+	cpx	#$FF
+	beq	:+
+	cpy	#$FF
+	beq	:+
+	dec	flgPdlsOk		; Flag paddles connected
+:
+	lda	tblSpeedsOfViper
+	sta	viperCurSpeed
+	lda	#10
+	sta	mouseDelayVal
+;	jsr	clearTextScreen
+	jsr	cleanInfoWindow
+	jsr	PRINTMSG07
+@wait:
+	jsr	chkKeyNoWait	; Check if any key is pressed
+	bmi	subDemoMode		; If yes, jump to demo mode
+:
+	inx
+	bne	:-
+	inc	demoModeCnt
+	bne	@wait
+	inc	demoModeCnt+1
+	bne	@wait
+	; fall throw
+
+; Demo mode subroutine
+subDemoMode:
+	lda	#$FF
+	sta	flgDemoMode
+	jsr	initGrpScreen
+	jsr	PRINTMSG01
+	lda	#0
+	sta	vipesrLeft
+	sta	currentScore
+	sta	currentScore+1
+	beq	L0CF3
+
+subPlayMode:
+	lda	#3
+	sta	vipesrLeft
+	lda	#>$500
+	sta	scoreLimitHi
+	lda	#0
+	sta	currentScore
+	sta	currentScore+1
+L0CDF:
+	jsr	initGrpScreen
+	jsr	PRINTMSG08
+	ldy	#6			; delay 6
+:
+	jsr	WAIT
+	dey
+	bne	:-
+	jsr	subClrPrintMsgsInfs
+	sta	HW_KEYBOARD_STROBE		; Clear keyboard flag
+L0CF3:
+	lda	#$00
+	sta	flgMouseVisible
+	sta	flgViperOverMouse
+	sta	viperTailPosX
+	sta	L0019
+	sta	PTRHISDIR
+	sta	viperDirection
+	sta	joyDirection
+	tax
+	lda	#$02
+	sta	viperTailPosY
+	sta	viperHeadPosY
+	ldy	#$14
+	sty	L0018
+	jsr	L0EFC
+	lda	#$02
+	ldx	#$01
+	stx	viperHeadPosX
+	ldy	#$10
+	sty	L0018
+	jsr	L0EFC
+	lda	#>dirHistoryPtr
+	sta	PTRHISDIR+1
+	sta	L0019+1
+	ldx	#$03
+	stx	viperLength
+	jsr	L10B9
+	jsr	subPrintMsgsInfs
+L0D37:
+	lda	viperCurSpeed
+	jsr	WAIT
+	dec	mouseDelayCnt
+	bne	:+
+	jsr	L108D
+:
+	bit	flgDemoMode
+	bmi	L0D98
+	jsr	readJoyKbd
+	bpl	:+
+	cmp	#'I' | $80
+	beq	GOTOP
+	cmp	#'A' | $80
+	beq	GOTOP
+	cmp	#'J' | $80
+	beq	GOLEFT
+	cmp	#'K' | $80
+	beq	GORIGHT
+	cmp	#'M' | $80
+	beq	GOBOT
+	cmp	#'Z' | $80
+	beq	GOBOT
+	cmp	#ASC_LEFT
+	beq	ROTRIGHT
+	cmp	#ASC_RIGHT
+	beq	ROTLEFT
+:
+	jmp	L0DD4
+GOTOP:
+	lda	#1			; Top
+	bpl	L0D92
+GOLEFT:
+	lda	#2			; Left
+	bpl	L0D92
+GORIGHT:
+	lda	#0			; Right
+	bpl	L0D92
+GOBOT:
+	lda	#3			; Bottom
+	bpl	L0D92
+ROTRIGHT:
+	inc	joyDirection
+	bpl	:+
+ROTLEFT:
+	dec	joyDirection
+:
+	lda	joyDirection
+	and	#$03
+L0D92:
+	sta	joyDirection
+	jmp	L0DD4
+
+L0D98:
+	jsr	chkKeyNoWait		; Check if any key is pressed
+	bpl	:+
+	jmp	L1228
+:
+	lda	flgMouseVisible
+	cmp	#$FF
+	bne	:+
+	dec	flgMouseVisible
+	bne	L0DD4
+:
+	lda	joyDirection
+	and	#1
+	bne	:+
+	lda	viperHeadPosY
+	cmp	mousePosY
+	beq	L0DD4
+	lda	#1
+	bcs	L0DD1
+	lda	#3
+	bpl	L0DD1
+:
+	lda	viperHeadPosX
+	cmp	mousePosX
+	beq	L0DD4
+	lda	#0
+	bcc	L0DD1
+	lda	#2
+L0DD1:
+	sta	joyDirection
+L0DD4:
+	ldx	viperHeadPosX
+	ldy	viperHeadPosY
+	lda	joyDirection
+	beq	L0DEB
+	cmp	#2
+	beq	:+
+	bcs	L0DEE
+	dey
+	bpl	L0DEF
+:
+	dex
+	bpl	L0DEF
+L0DEB:
+	inx
+	bpl	L0DEF
+L0DEE:
+	iny
+L0DEF:
+	cpx	#38			; ?
+	bcs	:+
+	cpy	#31			; ?
+	bcs	:+
+	jsr	L1077
+	lda	(PTRSCREEN),Y
+	bpl	L0E01
+:
+	jmp	L1176
+L0E01:					; Viper eat mouse
+	stx	viperHeadPosX2
+	sty	viperHeadPosY2
+	beq	L0E80
+	lda	flgDemoMode
+	bne	:+
+	jsr	subClrPrintMsgsInfs
+:
+	lda	#$00
+	sta	flgMouseVisible
+	lda	flgSoundEnabled
+	bne	L0E28
+	ldy	#6
+:
+	lda	#32
+	jsr	WAIT
+	bit	HW_SPEAKER
+	dey
+	bne	:-
+L0E28:					; Inc score
+	clc
+	lda	mouseCurVal
+	adc	viperLength
+	sta	viperLength
+	sed
+	lda	mouseCurVal
+	adc	currentScore
+	sta	currentScore
+	bcc	L0E77
+	lda	#0
+	adc	currentScore+1
+	sta	currentScore+1
+	cmp	scoreLimitHi
+	bne	L0E77
+	lda	#$04
+	adc	scoreLimitHi
+	sta	scoreLimitHi
+	jsr	PRINTMSG09
+	inc	vipesrLeft
+	lda	flgSoundEnabled
+	bne	L0E77
+	lda	#<2303			; 2303 = delay?
+	sta	LOC0
+	lda	#>2303
+	sta	LOC0+1
+L0E66:
+	ldy	LOC0
+:
+	dey
+	nop
+	bne	:-
+	bit	HW_SPEAKER
+	dec	LOC0
+	bne	L0E66
+	dec	LOC0+1
+	bne	:-
+L0E77:
+	lda	#2
+	sta	flgViperOverMouse
+	cld
+	jsr	L108D
+L0E80:
+	ldx	viperHeadPosX
+	lda	flgViperOverMouse
+	bne	:+
+	lda	viperDirection
+	asl	A			; * 2
+	asl	A			; * 2
+	ora	joyDirection
+:
+	sta	L0018
+	lda	viperHeadPosY
+	jsr	L0EFC
+	jsr	L112D
+	ldx	viperHeadPosX2
+	ldy	viperHeadPosY2
+	stx	viperHeadPosX
+	sty	viperHeadPosY
+	jsr	L1077
+	lda	#$FF
+	sta	(PTRSCREEN),Y
+	lda	joyDirection
+	ora	#$10
+	sta	L0018
+	tya
+	jsr	L0EFC
+	jsr	L0EBF
+	jmp	L0D37
+
+L0EBF:
+	lda	viperLength
+	beq	L0EC8
+	dec	viperLength
+	rts
+
+L0EC8:
+	ldx	viperTailPosX
+	ldy	viperTailPosY
+	jsr	L1077
+	lda	#$00
+	sta	(PTRSCREEN),Y
+	tya
+	jsr	L0EEE
+	ldy	#$00
+	jsr	L114B
+	lda	(L0019),Y
+	ora	#$14
+	sta	L0018
+	ldx	viperTailPosX
+	lda	viperTailPosY
+	jsr	L0EFC
+	rts
+
+L0EEE:
+	jsr	L0F3E
+	lda	#$00
+	ldx	#$08
+:
+	sta	(LOC0,X)
+	dex
+	dex
+	bpl	:-
+	rts
+
+L0EFC:
+	jsr	L0F3E
+	jsr	L0F60
+	ldx	#$08
+	ldy	#$04
+:
+	lda	(L0014),Y
+	sta	(LOC0,X)
+	dex
+	dex
+	dey
+	bpl	:-
+	rts
+
+eraseMouse:
+	jsr	L0F3A
+	lda	#$00
+	ldx	#18
+:
+	sta	(LOC0,X)
+	inc	LOC0,X
+	sta	(LOC0,X)
+	dex
+	dex
+	bpl	:-
+	rts
+
+L0F22:
+	jsr	L0F3A
+	ldx	#18
+	ldy	#9
+:
+	lda	tblUnk2, Y
+	sta	(LOC0, X)
+	inc	LOC0, X
+	lda	tblUnk3, Y
+	sta	(LOC0, X)
+	dex
+	dex
+	dey
+	bpl	:-
+
+L0F3A:
+	ldy	#19
+	bne	:+
+L0F3E:
+	ldy	#9
+:
+	inx
+	sta	L0016
+	asl	A
+	asl	A
+	adc	L0016
+	adc	#$06			; A <= A * 5 + 6
+	stx	L0016
+	tax
+:
+	lda	tblScrAddrHgrHi,X
+	sta	LOC0,Y
+	dey
+	lda	tblScrAddrHgrLo,X
+	adc	L0016
+	sta	LOC0, Y
+	dex
+	dey
+	bpl	:-
+	rts
+
+L0F60:
+	lda	L0018
+	asl	A
+	asl	A
+	adc	L0018			; A <= A * 5
+	adc	#<tblUnk1
+	sta	L0014
+	lda	#>tblUnk1
+	adc	#$00
+	sta	L0014+1
+	rts
+
+setTextScreen:
+	bit	TXTSET
+	bit	LOWSCR
+	lda	#0
+	sta	WNDTOP
+	rts
+
+setGrpScreen:
 	bit	TXTCLR
 	bit	MIXSET
 	bit	LOWSCR
 	bit	HIRES
-
-;
-; Descompacta tela de abertura em $2000
-;
-	lda		#$00
-	ldx		#$20
-	sta		DEST
-	stx		DEST+1
-	lda		#<TELA_ABERTURA
-	ldx		#>TELA_ABERTURA
-	sta		SRC
-	stx		SRC+1
-	jsr		RLE_UNPACK
-
-;
-; Descompacta jogo em $0C00
-;
-	lda		#$00
-	ldx		#$0C
-	sta		DEST
-	stx		DEST+1
-	lda		#<VIPER
-	ldx		#>VIPER
-	sta		SRC
-	stx		SRC+1
-	jsr		RLE_UNPACK
-
-	jmp		$0C00					; Inicia jogo
-
-;----------------------------------------------------
-
-;
-; RLE data descompress routine
-;
-
-; read a byte and increment source pointer
-RLE_READ:
-	lda		(SRC),y
-	inc		SRC
-	bne		:+
-	inc		SRC + 1
-:	rts
-
-
-; write a byte and increment destination pointer
-RLE_STORE:
-	sta		(DEST),y
-	inc		DEST
-	bne		:+
-	inc		DEST + 1
-:	rts
-
-
-; unpack a run length encoded stream
-RLE_UNPACK:
-	ldy		#0
-	jsr		RLE_READ				; read the first byte
-	sta		LASTBYTE				; save as last byte
-	jsr		RLE_STORE				; store
-@unpack:
-	jsr		RLE_READ				; read next byte
-	cmp		LASTBYTE				; same as last one?
-	beq		@rle					; yes, unpack
-	sta		LASTBYTE				; save as last byte
-	jsr		RLE_STORE				; store
-	jmp		@unpack					; next
-@rle:
-	jsr		RLE_READ				; read byte count
-	tax
-	beq		@end					; 0 = end of stream
-	lda		LASTBYTE
-@read:
-	jsr		RLE_STORE				; store X bytes
-	dex
-	bne		@read
-	beq		@unpack					; next
-@end:
 	rts
 
-VIPER:
-	.incbin	"obj/viper_core.rle"
-TELA_ABERTURA:
-	.incbin	"obj/open_screen.rle"
+initGrpScreen:
+	bit	TXTCLR
+	bit	MIXSET
+	bit	LOWSCR
+	bit	HIRES
+	lda	#0
+	sta	LOC0
+	tay
+; Clear screen
+	ldx	#>HGRADDRBASE
+@loop1:
+	stx	LOC0+1
+:
+	sta	(LOC0),Y
+	iny
+	bne	:-
+	inx
+	cpx	#>HGRADDRBASE+$20
+	bne	@loop1
+; Clear Direction History
+	ldx	#>dirHistoryPtr
+@loop2:
+	stx	LOC0+1
+:
+	sta	(LOC0),Y
+	iny
+	bne	:-
+	inx
+	cpx	#>dirHistoryEndPtr+7
+	bne	@loop2
+;
+	ldx	#$9D
+:
+	lda	tblScrAddrHgrLo,X
+	sta	LOC0
+	lda	tblScrAddrHgrHi,X
+	sta	LOC0+1
+	lda	#$40
+	ldy	#$00
+	sta	(LOC0),Y
+	lda	#$01
+	ldy	#$27
+	sta	(LOC0),Y
+	dex
+	bne	:-
+	ldy	#$26
+	lda	#$7F
+:
+	sta	HGRADDRBASE + $0400,Y
+	sta	HGRADDRBASE + $15D0,Y
+	dey
+	bne	:-
+	ldx	cfgObstacles
+	beq	@jmp1
+	lda	#$19
+	sta	L0018
+	ldy	#$10
+:
+	sty	TMPVAR2
+	ldx	#$13
+	jsr	L1082
+	ldy	TMPVAR2
+	dey
+	cpy	#$0E
+	bcs	:-
+	ldx	#$12
+	lda	#$1A
+	sta	L0018
+	ldy	#$0F
+	jsr	L1082
+	ldx	#$14
+	ldy	#$0F
+	jsr	L1082
+	ldx	cfgObstacles
+	cpx	#$01
+	beq	cleanInfoWindow
+	lda	#$07
+	sta	L0018
+	ldy	#$05
+	ldx	#$06
+	jsr	L1082
+	ldy	#$19
+	ldx	#$06
+	jsr	L1082
+	inc	L0018
+	ldy	#$05
+	ldx	#$1F
+	jsr	L1082
+	ldy	#$19
+	ldx	#$1F
+	jsr	L1082
+	ldx	cfgObstacles
+	cpx	#$02
+@jmp1:
+	beq	cleanInfoWindow
+	lda	#$18
+	sta	L0018
+	ldy	#$03
+:
+	sty	TMPVAR2
+	ldx	#$13
+	jsr	L1082
+	ldy	TMPVAR2
+	iny
+	cpy	#$0A
+	bne	:-
+	ldy	#$1B
+:
+	sty	TMPVAR2
+	ldx	#$13
+	jsr	L1082
+	ldy	TMPVAR2
+	dey
+	cpy	#$14
+	bne	:-
+	ldx	#$03
+:
+	stx	TMPVAR2
+	ldy	#$0F
+	jsr	L1082
+	lda	L0018
+	eor	#$15
+	sta	L0018
+	ldx	TMPVAR2
+	inx
+	cpx	#$0C
+	bne	:-
+	ldx	#$22
+:
+	stx	TMPVAR2
+	ldy	#$0F
+	jsr	L1082
+	lda	L0018
+	eor	#$15
+	sta	L0018
+	ldx	TMPVAR2
+	dex
+	cpx	#$19
+	bne	:-
+
+cleanInfoWindow:
+	lda	#20
+	sta	WNDTOP
+	jmp	HOME
+
+L1077:
+	lda	tblUnk4, X
+	sta	PTRSCREEN
+	lda	tblUnk5, X
+	sta	PTRSCREEN+1
+	rts
+
+L1082:
+	jsr	L1077
+	lda	#$80
+	sta	(PTRSCREEN),Y
+	tya
+	jmp	L0EFC
+
+L108D:
+	lda	mousePosY
+	ldx	mousePosX
+	jsr	eraseMouse
+	ldy	mousePosY
+	ldx	mousePosX
+	jsr	L1077
+	lda	#$00
+	sta	(PTRSCREEN),Y
+	dey
+	sta	(PTRSCREEN),Y
+	inx
+	jsr	L1077
+	lda	#$00
+	sta	(PTRSCREEN),Y
+	iny
+	sta	(PTRSCREEN),Y
+	lda	flgMouseVisible
+	beq	L10B9
+	jmp	L1A15
+
+L10B9:
+	lda	#9
+	jsr	L1A08
+	sta	mouseCurVal
+	inc	mouseCurVal
+	asl	A
+	asl	A
+	eor	#$3E
+	sta	mouseDelayCnt
+L10CB:
+	lda	#$25
+	jsr	L1A08
+	tax
+	lda	#$1E
+	jsr	L1A08
+	tay
+	cpx	viperHeadPosX
+	beq	L1125
+	cpy	viperHeadPosY
+	beq	L1125
+L10E1:
+	jsr	L1077
+	lda	(PTRSCREEN),Y
+	bne	L1125
+	iny
+	lda	(PTRSCREEN),Y
+	bne	L1125
+	inx
+	lda	flgMouseVisible
+	bne	:+
+	cpx	viperHeadPosX
+	beq	L1125
+:
+	jsr	L1077
+	lda	(PTRSCREEN),Y
+	bne	L1125
+	dey
+	lda	(PTRSCREEN),Y
+	bne	L1125
+	lda	#$01
+	sta	(PTRSCREEN),Y
+	iny
+	sta	(PTRSCREEN),Y
+	dex
+	jsr	L1077
+	sta	(PTRSCREEN),Y
+	dey
+	sta	(PTRSCREEN),Y
+	iny
+	stx	mousePosX
+	sty	mousePosY
+	dec	flgMouseVisible
+	tya
+	jsr	L0F22
+	jmp	subPrintOnlyInfs
+
+L1125:
+	lda	flgMouseVisible
+	beq	L10CB
+	jmp	L1A44
+
+L112D:
+	inc	PTRHISDIR
+	bne	:+
+	inc	PTRHISDIR+1
+	lda	PTRHISDIR+1
+	cmp	#>dirHistoryEndPtr
+	bne	:+
+	lda	#>dirHistoryPtr
+	sta	PTRHISDIR+1
+:
+	ldy	#$00
+	sty	flgViperOverMouse
+	lda	joyDirection
+	sta	viperDirection
+	sta	(PTRHISDIR),Y
+	rts
+
+L114B:
+	lda	(L0019),Y
+	inc	L0019
+	bne	:+
+	inc	L0019+1
+	ldx	L0019+1
+	cpx	#>dirHistoryEndPtr
+	bne	:+
+	ldx	#>dirHistoryPtr
+	stx	L0019+1
+:
+	tax
+	beq	@incX
+	cmp	#$02
+	beq	@decX
+	bcs	@incY
+	dec	viperTailPosY
+	rts
+@decX:
+	dec	viperTailPosX
+	rts
+@incX:
+	inc	viperTailPosX
+	rts
+@incY:
+	inc	viperTailPosY
+	rts
+
+L1176:
+	sec
+	lda	PTRHISDIR
+	sbc	#$01
+	sta	PTRHISDIR
+	lda	PTRHISDIR+1
+	sbc	#$00
+	sta	PTRHISDIR+1
+L1183:
+	lda	flgSoundEnabled
+	bne	L1195
+	ldy	#$04
+:
+	lda	#32
+	jsr	WAIT
+	bit	HW_SPEAKER
+	dey
+	bne	:-
+L1195:
+	jsr	L0EBF
+	lda	viperTailPosX
+	cmp	viperHeadPosX
+	bne	L1183
+	lda	viperTailPosY
+	cmp	viperHeadPosY
+	bne	L1183
+	ldx	viperTailPosX
+	lda	viperTailPosY
+	jsr	L0EEE
+	bit	flgDemoMode
+	bpl	:+
+	jmp	subDemoMode
+:
+	dec	vipesrLeft
+	beq	:+
+	jmp	L0CDF
+:
+	lda	varHighScores+$90
+	cmp	currentScore
+	lda	varHighScores+$91
+	sbc	currentScore+1
+	bcs	L1228
+	ldx	#$09
+L11D1:
+	txa
+	asl	A
+	asl	A
+	asl	A
+	asl	A
+	tay
+	lda	varHighScores, Y
+	cmp	currentScore
+	lda	varHighScores+1, Y
+	sbc	currentScore+1
+	bcs	L1207
+	tya
+	dey
+	sty	LOC0
+	ora	#$0F
+	tay
+:
+	lda	varHighScores, Y
+	sta	varHighScores+16, Y
+	dey
+	cpy	LOC0
+	bne	:-
+	iny
+	lda	currentScore
+	sta	varHighScores, Y
+	lda	currentScore+1
+	sta	varHighScores+1, Y
+	dex
+	bpl	L11D1
+L1207:
+	inx
+	inx
+	jsr	PRINTMSG12
+	cpx	#10
+	beq	:+
+	txa
+	ora	#$70
+	jsr	MON_COUT
+	jmp	L1222
+:
+	lda	#'1' | $40
+	jsr	MON_COUT
+	lda	#'0' | $40
+	jsr	MON_COUT
+L1222:
+	jsr	PRINTMSG13
+	jsr	subGetPlayerName
+	jsr	subPrintScores
+L1228:
+	jsr	cleanInfoWindow
+L122B:
+	jsr	PRINTMSG04e5
+	jsr	subPrintMsgsInfs
+	lda	#0
+	sta	flgDemoMode
+L1239:
+	jsr	chkKeyWait
+	cmp	#$93			; CTRL+S
+	bne	:+
+	lda	flgSoundEnabled
+	eor	#$01
+	sta	flgSoundEnabled
+	jsr	initGrpScreen
+	jmp	L122B
+:
+	cmp	#'F' | $80
+	beq	subConfigFactors
+	cmp	#'D' | $80
+	bne	:+
+	jmp	subDemoMode
+:
+	cmp	#'P' | $80
+	bne	:+
+	jmp	subPlayMode
+:
+	cmp	#'I' | $80
+	bne	L1239
+
+	jsr	printInstructions
+	jsr	cleanInfoWindow
+	jsr	PRINTMSG07
+	jsr	chkKeyWait
+	jsr	initGrpScreen
+	jmp	L122B
+
+subConfigFactors:
+	jsr	subClrPrintMsgsInfs
+	ldy	#NMSG10
+	jsr	subPrintMsg
+	lda	cfgViperSpeed
+	ora	#$70
+	jsr	MON_COUT
+:
+	jsr	chkKeyWait
+	cmp	#ASC_RETURN
+	beq	L12A1
+	cmp	#':' | $80		; > 9
+	bcs	:-
+	sbc	#'/' | $80		; < 0
+	bcc	:-
+	sta	cfgViperSpeed
+	tax
+	lda	tblSpeedsOfViper,X
+	sta	viperCurSpeed
+	bne	subConfigFactors
+L12A1:
+	jsr	subClrPrintMsgsInfs
+	ldy	#NMSG06
+	jsr	subPrintMsg
+	lda	cfgMouseSpeed
+	ora	#$70
+	jsr	MON_COUT
+:
+	jsr	chkKeyWait
+	cmp	#ASC_RETURN
+	beq	L12CC
+	cmp	#':' | $80		; > 9
+	bcs	:-
+	sbc	#'/' | $80		; < 0
+	bcc	:-
+	sta	cfgMouseSpeed
+	eor	#$0F
+	sbc	#$05
+	sta	mouseDelayVal
+	bcs	L12A1
+L12CC:
+	jsr	subClrPrintMsgsInfs
+	ldy	#NMSG11
+	jsr	subPrintMsg
+	lda	cfgObstacles
+	clc
+	adc	#'A' | $40
+	jsr	MON_COUT
+:
+	jsr	chkKeyWait
+	cmp	#ASC_RETURN
+	beq	:+
+	cmp	#'E' | $80		; > D
+	bcs	:-
+	sbc	#'@' | $80		; < A
+	bcc	:-
+	sta	cfgObstacles
+	jsr	initGrpScreen
+	jmp	L12CC
+:
+	jmp	L1228
+
+subGetPlayerName:
+	dex
+	txa
+	asl	A
+	asl	A
+	asl	A
+	asl	A
+	ora	#$02
+	sta	LOC0
+	lda	#$02
+	sta	LOC0+1
+	ldy	#$0D
+	lda	#' ' | $80
+:
+	sta	(LOC0),Y
+	dey
+	bpl	:-
+	iny
+@waitKey:
+	jsr	chkKeyWait
+	cmp	#ASC_LEFT
+	beq	@leftKey
+	cmp	#ASC_RETURN
+	beq	@end
+	cpy	#13
+	bne	:+
+	tya
+	pha
+	jsr	BELL11
+	pla
+	tay
+	jmp	@waitKey
+:
+	sta	(LOC0),Y
+	jsr	MON_COUT
+	iny
+	bne	@waitKey
+@leftKey:
+	tya
+	beq	@waitKey
+	dey
+	lda	#ASC_LEFT
+	jsr	MON_COUT
+	lda	#' ' | $80
+	sta	(LOC0),Y
+	jsr	MON_COUT
+	lda	#ASC_LEFT
+	jsr	MON_COUT
+	jmp	@waitKey
+@end:
+	jsr	subClrPrintMsgsInfs
+	rts
+
+;------------------------------------------------------------------------------
+subPrintScores:
+	jsr	setTextScreen
+	jsr	HOME
+	jsr	PRINTMSG14
+	ldx	#9
+@loop:
+	stx	TMPVAR1
+	lda	#11
+	sta	MON_CH
+	txa
+	clc
+	adc	#6
+	sta	MON_CV
+	jsr	MON_VTAB
+	ldy	#$03
+	txa
+	asl	A
+	asl	A
+	asl	A
+	asl	A
+	tax
+	lda	varHighScores+1, X
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0'
+	jsr	MON_COUT
+	iny
+	lda	varHighScores+1, X
+	and	#$0F
+	ora	#'0'
+	jsr	MON_COUT
+	iny
+	lda	varHighScores, X
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0'
+	jsr	MON_COUT
+	iny
+	lda	varHighScores, X
+	and	#$0F
+	ora	#'0'
+	jsr	MON_COUT
+	inc	MON_CH
+	ldy	#0
+	txa
+	ora	#$02
+	sta	@load+1
+@load:
+	lda	varHighScores, Y
+	jsr	MON_COUT
+	iny
+	cpy	#14
+	bne	@load
+	ldx	TMPVAR1
+	dex
+	bpl	@loop
+	jsr	chkKeyWait
+	jsr	setGrpScreen
+	rts
+
+;------------------------------------------------------------------------------
+chkKeyWait:
+	bit	HW_KEYBOARD_STROBE
+:
+	lda	HW_KEYBOARD_IN
+	bpl	:-
+	sta	HW_KEYBOARD_STROBE
+	rts
+
+;------------------------------------------------------------------------------
+chkKeyNoWait:
+	bit	HW_KEYBOARD_IN
+	bpl	:+
+	sta	HW_KEYBOARD_STROBE
+:
+	rts
+
+;------------------------------------------------------------------------------
+readJoyKbd:
+	bit	flgPdlsOk
+	bpl	:+
+	jsr	@readPdl
+	bne	@exit			; If paddles readed, exit
+:
+	lda	HW_KEYBOARD_IN
+	bpl	@exit
+	sta	HW_KEYBOARD_STROBE
+@exit:
+	rts
+@readPdl:
+	jsr	subReadPaddles		; X = PDL0 (left-right), Y = PDL1 (up-down)
+	cpx	#41
+	bcc	@paraesq
+	cpx	#123
+	bcs	@paradir
+	cpy	#41
+	bcc	@paracima
+	cpy	#123
+	bcs	@parabaixo
+	lda	#0
+	rts
+@paracima:
+	lda	#'I' | $80
+	bne	@sair
+@parabaixo:
+	lda	#'M' | $80
+	bne	@sair
+@paraesq:
+	lda	#'J' | $80
+	bne	@sair
+@paradir:
+	lda	#'K' | $80
+@sair:
+	rts
+
+; From http://homepage.mac.com/bobsc/aal/1982/aal8203.html
+;*----------------------------------------
+;* read both game paddles at the same time
+;*----------------------------------------
+; $00 = up or left, $4A = center, $A3 = down or right
+
+subReadPaddles:
+	ldx	#0				; paddle 0 count
+	ldy	#0				; paddle 1 count
+	lda	PTRIG				; start the paddle timers
+:
+	lda	PADDL0				; check paddle 0 timer
+	bpl	@pdl0to				; timed out
+	inx					; count PDL0
+	lda	PADDL1				; check paddle 1
+	bpl	@pdl1to				; timed out
+	iny					; count PDL1
+	bne	:-				; again
+	ldx	#255				; max time for both paddles
+	bne	:+				; ...always
+; *---paddle 0 timed out, keep looking at paddle 1
+@pdl0to:
+	lda	PADDL1				; check paddle 1
+	bpl	@exit				; timed out
+	iny					; count PDL1
+	nop					; equalize timing
+	nop
+	nop
+	nop
+	bne	@pdl0to
+:
+	ldy	#255				; max time for PDL1
+	bne	@exit				; ...always
+; *---paddle 1 timed out, keep looking at paddle 0
+@pdl1to:
+	lda	PADDL0				; check paddle 0
+	bpl	@exit				; timed out
+	inx					; count PDL0
+	nop					; equalize timing
+	nop
+	nop
+	nop
+	bne	@pdl1to				; keep checking
+	ldx	#255				; max time for PDL0
+@exit:
+	rts
+
+subClrPrintMsgsInfs:					; Rotina que imprime SCORE e outras informações na janela de texto
+	jsr	cleanInfoWindow
+subPrintMsgsInfs:
+	jsr	PRINTMSG02
+	jsr	PRINTMSG03
+subPrintOnlyInfs:
+	lda	#23
+	sta	MON_CV
+	jsr	MON_VTAB
+	lda	#7
+	sta	MON_CH
+	lda	currentScore+1
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0'
+	jsr	MON_COUT
+	lda	currentScore+1
+	and	#$0F
+	ora	#'0'
+	jsr	MON_COUT
+	lda	currentScore
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0'
+	jsr	MON_COUT
+	lda	currentScore
+	and	#$0F
+	ora	#'0'
+	jsr	MON_COUT
+	lda	#32
+	sta	MON_CH
+	lda	mouseCurVal
+	ora	#$70
+	jsr	MON_COUT
+	lda	#22
+	sta	MON_CV
+	jsr	MON_VTAB
+	lda	#32
+	sta	MON_CH
+	lda	vipesrLeft
+	ora	#'0' | $80
+	jsr	MON_COUT
+	lda	#12
+	sta	MON_CH
+	lda	varHighScores+1
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0' | $80
+	jsr	MON_COUT
+	lda	varHighScores+1
+	and	#$0F
+	ora	#'0' | $80
+	jsr	MON_COUT
+	lda	varHighScores
+	lsr	A
+	lsr	A
+	lsr	A
+	lsr	A
+	ora	#'0' | $80
+	jsr	MON_COUT
+	lda	varHighScores
+	and	#$0F
+	ora	#'0' | $80
+	jmp	MON_COUT
+
+getRandomNum:
+	lda	RNDH
+	pha
+	lda	RNDL
+	pha
+	rol	RNDH
+	rol	RNDL
+	rol	RNDH
+	rol	RNDL
+	lda	RNDL
+	eor	viperTailPosX
+	sta	RNDL
+	pla
+	adc	RNDL
+	sta	RNDL
+	pla
+	adc	RNDH
+	sta	RNDH
+	rts
+
+L1A08:
+	sta	L0016
+	jsr	getRandomNum
+	sec
+:
+	sbc	L0016
+	bcs	:-
+	adc	L0016
+	rts
+
+L1A15:
+	ldx	mousePosX
+	ldy	mousePosY
+	dey
+	lda	mouseDelayVal
+	sta	mouseDelayCnt
+	lda	#4
+	jsr	L1A08
+	beq	L1A38
+	cmp	#2
+	bcc	L1A35
+	beq	:+
+	inx
+	bpl	L1A39
+:
+	iny
+	bpl	L1A39
+L1A35:
+	dex
+	bpl	L1A39
+L1A38:
+	dey
+L1A39:
+	cpx	#37
+	bcs	L1A15
+	cpy	#30
+	bcs	L1A15
+	jmp	L10E1
+L1A44:
+	ldx	mousePosX
+	ldy	mousePosY
+	dey
+	jmp	L10E1
+
+subPrintMsg:
+	lda	tblMsgPtrsLo, Y
+	sta	@load+1
+	lda	tblMsgPtrsHi, Y
+	sta	@load+2
+	lda	tblMsgsCh, y
+	sta	MON_CH
+	lda	tblMsgsCv, y
+	sta	MON_CV
+	jsr	MON_VTAB
+
+	ldy	#$00
+@load:
+	lda	$0000,Y
+	beq	:+
+	jsr	MON_COUT
+	iny
+	bne	@load
+:
+	rts
+
+printInstructions:
+	jsr	setTextScreen
+	jsr	HOME
+	lda	#<txtIntructions
+	sta	SRC
+	lda	#>txtIntructions
+	sta	SRC+1
+	ldy	#0
+:
+	lda	(SRC), y
+	beq	:+
+	jsr	COUT
+	iny
+	bne	:-
+	inc	SRC+1
+	bne	:-
+:
+	rts
+
+PRINTMSG01:
+	ldy	#NMSG01
+	beq	subPrintMsg
+PRINTMSG02:
+	ldy	#NMSG02
+	bne	subPrintMsg
+PRINTMSG03:
+	ldy	#NMSG03
+	bne	subPrintMsg
+PRINTMSG04e5:
+	ldy	#NMSG04
+	jsr	subPrintMsg
+	ldy	#NMSG05
+	bne	subPrintMsg
+PRINTMSG07:
+	ldy	#NMSG07
+	bne	subPrintMsg
+PRINTMSG08:
+	ldy	#NMSG08
+	bne	subPrintMsg
+PRINTMSG09:
+	ldy	#NMSG09
+	bne	subPrintMsg
+PRINTMSG12:
+	ldy	#NMSG12
+	bne	subPrintMsg
+PRINTMSG13:
+	ldy	#NMSG13
+	bne	subPrintMsg
+PRINTMSG14:
+	ldy	#NMSG14
+	bne	subPrintMsg
+
+;
+; Read-only data
+;
+	.rodata
+
+txtIntructions:
+	;                 1111111111222222222233333333334
+	;        1234567890123456789012345678901234567890
+	text	"                 "
+	texti	"VIPER"
+	textr	""
+	textr	"MOVEMENT KEYS --"
+	textr	"    I       A           <-- , -->"
+	textr	"  J + K   J + K   OR"
+	text	"    M       Z        (LEFT/RIGHT ARROWS)"
+	textr	""
+	textr	"TO USE IJKM OR AJKZ, JUST PRESS THE KEY"
+	textr	"IN THE DIRECTION YOU WANT TO MOVE.  THE"
+	textr	"ARROW KEYS MAKE 90 DEGREE TURNS (THIS"
+	textr	"METHOD IS CONFUSING AT FIRST)"
+	textr	""
+	textr	"CHALLENGE FACTOR --"
+	textr	"SNAKE SPEED (0=SLOWEST,9=FASTEST)"
+	textr	"MOUSE SPEED (0=SLOWEST,9=FASTEST)"
+	textr	"OBSTACLES (A=NONE,D=MANY)"
+	textr	""
+	textr	"YOU GET 3 VIPERS TO CATCH AS MANY MICE"
+	textr	"AS YOU CAN.  HITTING YOUR TAIL OR THE"
+	textr	"OBSTACLES OR THE BORDER KILLS A SNAKE."
+	text	"       ";
+	textiz	"BONUS SNAKE AT 500 POINTS!"
+
+tblMsgsCh:
+	.byte	0,  0,  0,  0,  0,  0,  7,  17, 15, 0,  0,  0,  0,  14
+tblMsgsCv:
+	.byte	20, 23, 22, 20, 21, 20, 22, 21, 20, 20, 20, 20, 21, 0
+
+	;                 1111111111222222222233333333334
+	;        1234567890123456789012345678901234567890
+MSG01:
+	texti	"DEMO MODE"
+	textz	"             PRESS ANY KEY"
+MSG02:
+	textz	"SCORE:             MOUSE VALUE:"
+MSG03:
+	textz	"HIGH SCORE:        VIPERS LEFT:"
+MSG04:
+	textz	"PLAY(P)  DEMO(D)  SOUND ON/OFF(CTRL-S)"
+MSG05:
+	textz	"CHALLENGE FACTOR(F)  INSTRUCTIONS(I)"
+MSG06:
+	textz	"MOUSE SPEED (0-9): "
+MSG07:
+	textz	"PRESS <RETURN> TO CONTINUE"
+MSG08:
+	textfz	"READY!"
+MSG09:
+	textfz	"EXTRA SNAKE"
+MSG10:
+	textz	"VIPER SPEED (0-9): "
+MSG11:
+	textz	"OBSTACLES (A-D): "
+MSG12:
+	textz	"HIGH SCORE NUMBER "
+MSG13:
+	text	"ENTER YOUR NAME "
+	texti	"-->"
+	textz	" "
+MSG14:
+	textz	"TOP TEN SCORES"
+
+.enum
+	NMSG01	= 0
+	NMSG02
+	NMSG03
+	NMSG04
+	NMSG05
+	NMSG06
+	NMSG07
+	NMSG08
+	NMSG09
+	NMSG10
+	NMSG11
+	NMSG12
+	NMSG13
+	NMSG14
+.endenum
+
+; tabela de ponteiro de strings
+tblMsgPtrsLo:
+	.byte	<MSG01
+	.byte	<MSG02
+	.byte	<MSG03
+	.byte	<MSG04
+	.byte	<MSG05
+	.byte	<MSG06
+	.byte	<MSG07
+	.byte	<MSG08
+	.byte	<MSG09
+	.byte	<MSG10
+	.byte	<MSG11
+	.byte	<MSG12
+	.byte	<MSG13
+	.byte	<MSG14
+tblMsgPtrsHi:
+	.byte	>MSG01
+	.byte	>MSG02
+	.byte	>MSG03
+	.byte	>MSG04
+	.byte	>MSG05
+	.byte	>MSG06
+	.byte	>MSG07
+	.byte	>MSG08
+	.byte	>MSG09
+	.byte	>MSG10
+	.byte	>MSG11
+	.byte	>MSG12
+	.byte	>MSG13
+	.byte	>MSG14
+
+tblUnk1:
+	.byte	$00,$7F,$00,$7F,$00,$12,$11,$10
+	.byte	$0F,$00,$14,$55,$55,$55,$14,$00
+	.byte	$0F,$10,$11,$12,$00,$7C,$02,$62
+	.byte	$12,$12,$12,$12,$12,$12,$00,$0F
+	.byte	$10,$11,$12,$14,$55,$55,$55,$14
+	.byte	$94,$D5,$D5,$D5,$94,$12,$62,$02
+	.byte	$7C,$00,$00,$7F,$00,$7F,$00,$00
+	.byte	$7C,$02,$62,$12,$12,$62,$02,$7C
+	.byte	$00,$2A,$2A,$2A,$2A,$2A,$12,$11
+	.byte	$10,$0F,$00,$12,$12,$12,$12,$12
+	.byte	$1E,$29,$20,$39,$1E,$1E,$29,$2B
+	.byte	$21,$12,$3C,$4E,$02,$4A,$3C,$12
+	.byte	$21,$35,$25,$1E,$00,$70,$08,$70
+	.byte	$00,$12,$12,$0C,$00,$00,$00,$07
+	.byte	$08,$07,$00,$00,$00,$0C,$12,$12
+	.byte	$55,$55,$55,$55,$55,$AA,$AA,$AA
+	.byte	$AA,$AA,$D5,$D5,$D5,$D5,$D5
+
+tblUnk2:
+	.byte	$02,$41,$41,$7D,$02,$02,$02,$7C
+	.byte	$0A,$0A
+tblUnk3:
+	.byte	$05,$0A,$18,$65,$61,$1E,$04,$03
+	.byte	$05,$05
+
+; Tables with screen address for each line
+; Low part of pointers
+tblScrAddrHgrLo:
+	.byte	$00,$00,$00,$00,$00,$00,$00,$00
+	.byte	$80,$80,$80,$80,$80,$80,$80,$80
+	.byte	$00,$00,$00,$00,$00,$00,$00,$00
+	.byte	$80,$80,$80,$80,$80,$80,$80,$80
+	.byte	$00,$00,$00,$00,$00,$00,$00,$00
+	.byte	$80,$80,$80,$80,$80,$80,$80,$80
+	.byte	$00,$00,$00,$00,$00,$00,$00,$00
+	.byte	$80,$80,$80,$80,$80,$80,$80,$80
+	.byte	$28,$28,$28,$28,$28,$28,$28,$28
+	.byte	$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte	$28,$28,$28,$28,$28,$28,$28,$28
+	.byte	$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte	$28,$28,$28,$28,$28,$28,$28,$28
+	.byte	$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte	$28,$28,$28,$28,$28,$28,$28,$28
+	.byte	$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+	.byte	$50,$50,$50,$50,$50,$50,$50,$50
+	.byte	$D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte	$50,$50,$50,$50,$50,$50,$50,$50
+	.byte	$D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte	$50,$50,$50,$50,$50,$50,$50,$50
+	.byte	$D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+	.byte	$50,$50,$50,$50,$50,$50,$50,$50
+	.byte	$D0,$D0,$D0,$D0,$D0,$D0,$D0,$D0
+
+; High part of pointers
+
+
+tblScrAddrHgrHi:
+	MAKEHGRHITBL >HGRADDRBASE
+
+;; 42 items na tabela
+tblUnk4:
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+	.byte	$00,$28,$50,$80,$A8,$D0
+
+tblUnk5:
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+1
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+2
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+3
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+4
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+5
+	 .endrep
+	 .repeat 6
+	  .byte	>dirHistoryEndPtr+6
+	 .endrep
+
+tblSpeedsOfViper:
+	.byte	$D0,$C0,$B0,$A0,$90
+	.byte	$80,$78,$70,$68,$60
+
+tblDefaultScores:
+	.word	$500
+	text	"HOW ABOUT YOU?"
+
+; Variables in RAM
+
+	.bss
+
+currentScore:
+	.res	2
+joyDirection:
+	.res	1
+cfgViperSpeed:
+	.res	1
+viperLength:
+	.res	1
+viperTailPosX:
+	.res	1
+viperTailPosY:
+	.res	1
+viperHeadPosX:
+	.res	1
+viperHeadPosY:
+	.res	1
+viperHeadPosX2:
+	.res	1
+viperHeadPosY2:
+	.res	1
+viperDirection:
+	.res	1
+viperCurSpeed:
+	.res	1
+mouseCurVal:
+	.res	1
+mousePosX:
+	.res	1
+mousePosY:
+	.res	1
+mouseDelayCnt:
+	.res	1
+flgDemoMode:
+	.res	1
+flgMouseVisible:
+	.res	1
+flgViperOverMouse:
+	.res	1
+flgSoundEnabled:
+	.res	1
+flgPdlsOk:
+	.res	1
+mouseDelayVal:
+	.res	1
+cfgObstacles:
+	.res	1
+cfgMouseSpeed:
+	.res	1
+demoModeCnt:
+	.res	1
+vipesrLeft:
+	.res	1
+scoreLimitHi:
+	.res	1
+
+	; Needs to be aligned
+	.if .lobyte(*) <> 0
+	.res	256 - <*
+	.endif
+
+dirHistoryPtr:
+	.res	$600
+dirHistoryEndPtr:
+
+	.org	$200
+varHighScores:
+
+
