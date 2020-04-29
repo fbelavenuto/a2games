@@ -37,6 +37,7 @@ piece1:
 	flac -f "Karateka1_48_S_3.wav"
 	tkbinplay -d -w sine -r 48000 -p 4 -o "Karateka1_48_S_4.wav" "Karateka1.ini"
 	flac -f "Karateka1_48_S_4.wav"
+	$(RM) *.wav
 
 piece2: 
 	tkbinplay -a -d -w sine -r 44100 -p 3 -o "Karateka2_44_S_3.wav" "Karateka2.ini"
@@ -47,6 +48,7 @@ piece2:
 	flac -f "Karateka2_48_S_3.wav"
 	tkbinplay -a -d -w sine -r 48000 -p 4 -o "Karateka2_48_S_4.wav" "Karateka2.ini"
 	flac -f "Karateka2_48_S_4.wav"
+	$(RM) *.wav
 
 clean:
 	$(RM) $(ODIR)/* 

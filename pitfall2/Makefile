@@ -11,6 +11,7 @@ CP = cp
 RM = rm -f
 MD = mkdir
 CT2UTL = ct2utils
+DOSUTL = dos33util
 
 SDIR = src
 ODIR = obj
@@ -22,7 +23,7 @@ AFLAGS  = -t $(SYS) -l $(ODIR)/$(*).lst -I$(IDIR) -I.
 LDFLAGS = -C $(LDIR)/_config
 
 
-all: $(ODIR) ct2
+all: $(ODIR) ct2 dsk
 
 OBJS1 = $(ODIR)/tk2k_ar.o
 OBJS2 = $(ODIR)/pitfall2.o
@@ -39,9 +40,9 @@ ct2: tk2k_ar PITFALL2
 	$(CT2UTL) "Pit Fall II - Lost Caverns(C).ct2" -i -f PITFALL2#0608FD -t PITFII
 
 dsk: PITFALL2
-	dos33util "Pit Fall II - Lost Caverns(C).dsk" init data\TKDOS2000.bin
-	dos33util "Pit Fall II - Lost Caverns(C).dsk" save data\HELLO#FC0801
-	dos33util "Pit Fall II - Lost Caverns(C).dsk" save PITFALL2#0608FD
+	$(DOSUTL) "Pit Fall II - Lost Caverns(C).dsk" init data\TKDOS2000.bin
+	$(DOSUTL) "Pit Fall II - Lost Caverns(C).dsk" save data\HELLO#FC0801
+	$(DOSUTL) "Pit Fall II - Lost Caverns(C).dsk" save PITFALL2#0608FD
 
 flac: PITFALL2
 	ct2utils "Pit Fall II - Lost Caverns(C).ct2" -w -f "Pit Fall II - Lost Caverns(C).wav"
