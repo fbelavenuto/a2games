@@ -5,6 +5,11 @@
 	.include "hw.def"
 	.include "ascii.def"
 
+	.define	APPLE2 0
+	.define	TK2K 1
+	.ifndef MACHINE
+	.define MACHINE APPLE2
+	.endif
 
 	HGRADDRBASE = $2000
 
@@ -12,11 +17,11 @@
 
 	.zeropage
 
-	.org	$02
+	.org	0
+PNT0:
+	.res	10
 TMPVAR1:
 	.res	1
-
-	.org	$0B
 TMPVAR2:
 	.res	1
 
@@ -37,6 +42,12 @@ PTRSCREEN:
 	.org	$5A
 SRC:
 	.res	2
+
+	.if MACHINE = TK2K
+LASTKEY:
+	.res	1
+	.endif
+
 
 	.code
 	.org	$2000
@@ -69,6 +80,8 @@ Start:
 	sta	varHighScores,X
 	inx
 	bne	:-
+
+	.if MACHINE = APPLE2
 ; Check is paddles connected
 	jsr	subReadPaddles
 	cpx	#$FF
@@ -77,6 +90,8 @@ Start:
 	beq	:+
 	dec	flgPdlsOk		; Flag paddles connected
 :
+	.endif
+
 	lda	tblSpeedsOfViper
 	sta	viperCurSpeed
 	lda	#10
@@ -125,7 +140,12 @@ L0CDF:
 	dey
 	bne	:-
 	jsr	subClrPrintMsgsInfs
+	.if MACHINE = APPLE2
 	sta	HW_KEYBOARD_STROBE		; Clear keyboard flag
+	.else
+	lda	#0
+	sta	LASTKEY
+	.endif
 L0CF3:
 	lda	#$00
 	sta	flgMouseVisible
@@ -166,6 +186,9 @@ L0D37:
 	bmi	L0D98
 	jsr	readJoyKbd
 	bpl	:+
+
+	.if MACHINE = APPLE2
+
 	cmp	#'I' | $80
 	beq	GOTOP
 	cmp	#'A' | $80
@@ -182,6 +205,27 @@ L0D37:
 	beq	ROTRIGHT
 	cmp	#ASC_RIGHT
 	beq	ROTLEFT
+
+	.else
+
+	cmp	#'I' | $80
+	beq	GOTOP
+	cmp	#'J' | $80
+	beq	GOLEFT
+	cmp	#'K' | $80
+	beq	GORIGHT
+	cmp	#'M' | $80
+	beq	GOBOT
+	cmp	#ASC_UP_TK2K
+	beq	GOTOP
+	cmp	#ASC_DOWN_TK2K
+	beq	GOBOT
+	cmp	#ASC_LEFT
+	beq	GOLEFT
+	cmp	#ASC_RIGHT
+	beq	GORIGHT
+
+	.endif
 :
 	jmp	L0DD4
 GOTOP:
@@ -196,6 +240,9 @@ GORIGHT:
 GOBOT:
 	lda	#3			; Bottom
 	bpl	L0D92
+
+	.if MACHINE = APPLE2
+
 ROTRIGHT:
 	inc	joyDirection
 	bpl	:+
@@ -204,10 +251,14 @@ ROTLEFT:
 :
 	lda	joyDirection
 	and	#$03
+
+	.endif
+
 L0D92:
 	sta	joyDirection
 	jmp	L0DD4
 
+	
 L0D98:
 	jsr	chkKeyNoWait		; Check if any key is pressed
 	bpl	:+
@@ -272,7 +323,8 @@ L0E01:					; Viper eat mouse
 	beq	L0E80
 	lda	flgDemoMode
 	bne	:+
-	jsr	subClrPrintMsgsInfs
+	;jsr	subClrPrintMsgsInfs
+	jsr	subPrintMsgsInfs
 :
 	lda	#$00
 	sta	flgMouseVisible
@@ -308,19 +360,19 @@ L0E28:					; Inc score
 	lda	flgSoundEnabled
 	bne	L0E77
 	lda	#<2303			; 2303 = delay?
-	sta	LOC0
+	sta	PNT0
 	lda	#>2303
-	sta	LOC0+1
+	sta	PNT0+1
 L0E66:
-	ldy	LOC0
+	ldy	PNT0
 :
 	dey
 	nop
 	bne	:-
 	bit	HW_SPEAKER
-	dec	LOC0
+	dec	PNT0
 	bne	L0E66
-	dec	LOC0+1
+	dec	PNT0+1
 	bne	:-
 L0E77:
 	lda	#2
@@ -384,7 +436,7 @@ L0EEE:
 	lda	#$00
 	ldx	#$08
 :
-	sta	(LOC0,X)
+	sta	(PNT0,X)
 	dex
 	dex
 	bpl	:-
@@ -397,7 +449,7 @@ L0EFC:
 	ldy	#$04
 :
 	lda	(L0014),Y
-	sta	(LOC0,X)
+	sta	(PNT0,X)
 	dex
 	dex
 	dey
@@ -409,9 +461,9 @@ eraseMouse:
 	lda	#$00
 	ldx	#18
 :
-	sta	(LOC0,X)
-	inc	LOC0,X
-	sta	(LOC0,X)
+	sta	(PNT0,X)
+	inc	PNT0,X
+	sta	(PNT0,X)
 	dex
 	dex
 	bpl	:-
@@ -423,10 +475,10 @@ L0F22:
 	ldy	#9
 :
 	lda	tblUnk2, Y
-	sta	(LOC0, X)
-	inc	LOC0, X
+	sta	(PNT0, X)
+	inc	PNT0, X
 	lda	tblUnk3, Y
-	sta	(LOC0, X)
+	sta	(PNT0, X)
 	dex
 	dex
 	dey
@@ -448,11 +500,11 @@ L0F3E:
 	tax
 :
 	lda	tblScrAddrHgrHi,X
-	sta	LOC0,Y
+	sta	PNT0,Y
 	dey
 	lda	tblScrAddrHgrLo,X
 	adc	L0016
-	sta	LOC0, Y
+	sta	PNT0, Y
 	dex
 	dey
 	bpl	:-
@@ -490,14 +542,14 @@ initGrpScreen:
 	bit	LOWSCR
 	bit	HIRES
 	lda	#0
-	sta	LOC0
+	sta	PNT0
 	tay
 ; Clear screen
 	ldx	#>HGRADDRBASE
 @loop1:
-	stx	LOC0+1
+	stx	PNT0+1
 :
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	iny
 	bne	:-
 	inx
@@ -506,9 +558,9 @@ initGrpScreen:
 ; Clear Direction History
 	ldx	#>dirHistoryPtr
 @loop2:
-	stx	LOC0+1
+	stx	PNT0+1
 :
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	iny
 	bne	:-
 	inx
@@ -518,15 +570,15 @@ initGrpScreen:
 	ldx	#$9D
 :
 	lda	tblScrAddrHgrLo,X
-	sta	LOC0
+	sta	PNT0
 	lda	tblScrAddrHgrHi,X
-	sta	LOC0+1
+	sta	PNT0+1
 	lda	#$40
 	ldy	#$00
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	lda	#$01
 	ldy	#$27
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	dex
 	bne	:-
 	ldy	#$26
@@ -827,14 +879,14 @@ L11D1:
 	bcs	L1207
 	tya
 	dey
-	sty	LOC0
+	sty	PNT0
 	ora	#$0F
 	tay
 :
 	lda	varHighScores, Y
 	sta	varHighScores+16, Y
 	dey
-	cpy	LOC0
+	cpy	PNT0
 	bne	:-
 	iny
 	lda	currentScore
@@ -850,13 +902,25 @@ L1207:
 	cpx	#10
 	beq	:+
 	txa
+	.if MACHINE = APPLE2
 	ora	#$70
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	jmp	L1222
 :
+	.if MACHINE = APPLE2
 	lda	#'1' | $40
+	.else
+	lda	#'1' | $80
+	.endif
 	jsr	MON_COUT
+	.if MACHINE = APPLE2
 	lda	#'0' | $40
+	.else
+	lda	#'0' | $80
+	.endif
 	jsr	MON_COUT
 L1222:
 	jsr	PRINTMSG13
@@ -904,7 +968,11 @@ subConfigFactors:
 	ldy	#NMSG10
 	jsr	subPrintMsg
 	lda	cfgViperSpeed
+	.if MACHINE = APPLE2
 	ora	#$70
+	.else
+	ora #'0' | $80
+	.endif
 	jsr	MON_COUT
 :
 	jsr	chkKeyWait
@@ -924,7 +992,11 @@ L12A1:
 	ldy	#NMSG06
 	jsr	subPrintMsg
 	lda	cfgMouseSpeed
+	.if MACHINE = APPLE2
 	ora	#$70
+	.else
+	ora #'0' | $80
+	.endif
 	jsr	MON_COUT
 :
 	jsr	chkKeyWait
@@ -945,7 +1017,11 @@ L12CC:
 	jsr	subPrintMsg
 	lda	cfgObstacles
 	clc
+	.if MACHINE = APPLE2
 	adc	#'A' | $40
+	.else
+	adc #'A' | $80
+	.endif
 	jsr	MON_COUT
 :
 	jsr	chkKeyWait
@@ -969,13 +1045,13 @@ subGetPlayerName:
 	asl	A
 	asl	A
 	ora	#$02
-	sta	LOC0
+	sta	PNT0
 	lda	#$02
-	sta	LOC0+1
+	sta	PNT0+1
 	ldy	#$0D
 	lda	#' ' | $80
 :
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	dey
 	bpl	:-
 	iny
@@ -994,7 +1070,7 @@ subGetPlayerName:
 	tay
 	jmp	@waitKey
 :
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	jsr	MON_COUT
 	iny
 	bne	@waitKey
@@ -1005,7 +1081,7 @@ subGetPlayerName:
 	lda	#ASC_LEFT
 	jsr	MON_COUT
 	lda	#' ' | $80
-	sta	(LOC0),Y
+	sta	(PNT0),Y
 	jsr	MON_COUT
 	lda	#ASC_LEFT
 	jsr	MON_COUT
@@ -1041,12 +1117,20 @@ subPrintScores:
 	lsr	A
 	lsr	A
 	lsr	A
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	iny
 	lda	varHighScores+1, X
 	and	#$0F
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	iny
 	lda	varHighScores, X
@@ -1054,12 +1138,20 @@ subPrintScores:
 	lsr	A
 	lsr	A
 	lsr	A
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	iny
 	lda	varHighScores, X
 	and	#$0F
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	inc	MON_CH
 	ldy	#0
@@ -1080,6 +1172,8 @@ subPrintScores:
 	rts
 
 ;------------------------------------------------------------------------------
+	.if MACHINE = APPLE2
+
 chkKeyWait:
 	bit	HW_KEYBOARD_STROBE
 :
@@ -1088,7 +1182,32 @@ chkKeyWait:
 	sta	HW_KEYBOARD_STROBE
 	rts
 
+	.else
+
+chkKeyWait:
+	jmp	@jmp1
+@zeroFlag:
+	sta	LASTKEY
+@jmp1:
+	lda	#$FF
+	sta	TK2K_HW_KEYBOARD_SELECT_EXTRA_OFF
+	sta	TK2K_HW_KEYBOARD_SELECT_ROW
+	lda	TK2K_HW_KEYBOARD_READ
+	and	#<~TK2K_HW_TAPE_MASK
+	beq @zeroFlag
+	jsr tk2kReadKeyboard
+	cmp	LASTKEY
+	beq	@jmp1
+	sta	LASTKEY
+	lda	LASTKEY			; Reload N flag
+	bpl	@jmp1
+	rts
+
+	.endif
+
 ;------------------------------------------------------------------------------
+	.if MACHINE = APPLE2
+
 chkKeyNoWait:
 	bit	HW_KEYBOARD_IN
 	bpl	:+
@@ -1096,7 +1215,83 @@ chkKeyNoWait:
 :
 	rts
 
+	.else
+
+chkKeyNoWait:
+	lda	#$FF
+	sta	TK2K_HW_KEYBOARD_SELECT_EXTRA_OFF
+	sta	TK2K_HW_KEYBOARD_SELECT_ROW
+	lda	TK2K_HW_KEYBOARD_READ
+	and	#<~TK2K_HW_TAPE_MASK
+	beq	:+
+	lda	#$FF
+:
+	rts
+
+	.endif
+
 ;------------------------------------------------------------------------------
+	.if MACHINE = TK2K
+
+tk2kReadKeyboard:
+	tya
+	pha
+	lda	$26			; Save Zero-page addresses contents
+	pha
+	lda	$27
+	pha
+	lda	$06
+	pha
+	lda	$07
+	pha
+	lda	$08
+	pha
+	lda	$09
+	pha
+	jsr	TK2K_MON_SCAN1
+	sta	TMPVAR1
+	pla
+	sta	$09			; Restore Zero-page addresses contents
+	pla
+	sta	$08
+	pla
+	sta	$07
+	pla
+	sta	$06
+	pla
+	sta	$27
+	pla
+	sta	$26
+	pla
+	tay
+	lda TMPVAR1
+	rts
+
+	.endif
+
+;------------------------------------------------------------------------------
+	.if MACHINE = TK2K
+
+readJoyKbd:
+	lda	#$FF
+	sta	TK2K_HW_KEYBOARD_SELECT_EXTRA_OFF
+	sta	TK2K_HW_KEYBOARD_SELECT_ROW
+	lda	TK2K_HW_KEYBOARD_READ
+	and	#<~TK2K_HW_TAPE_MASK
+	beq @exit
+	jsr tk2kReadKeyboard
+	cmp	LASTKEY
+	beq	:+
+	sta	LASTKEY
+	lda	LASTKEY		; Reload N flag
+	rts
+:
+	lda	#0			; Clear N flag
+@exit:
+	rts
+
+	.else
+
 readJoyKbd:
 	bit	flgPdlsOk
 	bpl	:+
@@ -1181,6 +1376,8 @@ subReadPaddles:
 @exit:
 	rts
 
+	.endif
+
 subClrPrintMsgsInfs:					; Rotina que imprime SCORE e outras informações na janela de texto
 	jsr	cleanInfoWindow
 subPrintMsgsInfs:
@@ -1197,27 +1394,47 @@ subPrintOnlyInfs:
 	lsr	A
 	lsr	A
 	lsr	A
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	lda	currentScore+1
 	and	#$0F
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	lda	currentScore
 	lsr	A
 	lsr	A
 	lsr	A
 	lsr	A
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	lda	currentScore
 	and	#$0F
+	.if MACHINE = APPLE2
 	ora	#'0'
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	lda	#32
 	sta	MON_CH
 	lda	mouseCurVal
+	.if MACHINE = APPLE2
 	ora	#$70
+	.else
+	ora	#'0' | $80
+	.endif
 	jsr	MON_COUT
 	lda	#22
 	sta	MON_CV
@@ -1348,7 +1565,7 @@ printInstructions:
 :
 	lda	(SRC), y
 	beq	:+
-	jsr	COUT
+	jsr	MON_COUT
 	iny
 	bne	:-
 	inc	SRC+1
@@ -1389,6 +1606,28 @@ PRINTMSG14:
 	ldy	#NMSG14
 	bne	subPrintMsg
 
+; Macro Text Inverse
+.macro	TEXTINV	Arg
+	.repeat .strlen(Arg), I
+	.if MACHINE = APPLE2
+	.byte   .strat(Arg, I) & $3F
+	.else
+	.byte   .strat(Arg, I) | $80
+	.endif
+	.endrep
+.endmacro
+
+; Macro utilizada para gerar bytes em FLASH (Apple2)
+.macro	TEXTFLASH	Arg
+	.repeat .strlen(Arg), I
+	.if MACHINE = APPLE2
+	.byte   .strat(Arg, I) | $40
+	.else
+	.byte   .strat(Arg, I) | $80
+	.endif
+	.endrep
+.endmacro
+
 ;
 ; Read-only data
 ;
@@ -1398,9 +1637,10 @@ txtIntructions:
 	;                 1111111111222222222233333333334
 	;        1234567890123456789012345678901234567890
 	text	"                 "
-	texti	"VIPER"
+	TEXTINV	"VIPER"
 	textr	""
 	textr	"MOVEMENT KEYS --"
+	.if MACHINE = APPLE2
 	textr	"    I       A           <-- , -->"
 	textr	"  J + K   J + K   OR"
 	text	"    M       Z        (LEFT/RIGHT ARROWS)"
@@ -1409,6 +1649,13 @@ txtIntructions:
 	textr	"IN THE DIRECTION YOU WANT TO MOVE.  THE"
 	textr	"ARROW KEYS MAKE 90 DEGREE TURNS (THIS"
 	textr	"METHOD IS CONFUSING AT FIRST)"
+	.else
+	textr	""
+	textr	"    I"
+	textr	"  J + K   OR   ARROW KEYS"
+	text	"    M"
+	textr	""
+	.endif
 	textr	""
 	textr	"CHALLENGE FACTOR --"
 	textr	"SNAKE SPEED (0=SLOWEST,9=FASTEST)"
@@ -1418,8 +1665,9 @@ txtIntructions:
 	textr	"YOU GET 3 VIPERS TO CATCH AS MANY MICE"
 	textr	"AS YOU CAN.  HITTING YOUR TAIL OR THE"
 	textr	"OBSTACLES OR THE BORDER KILLS A SNAKE."
-	text	"       ";
-	textiz	"BONUS SNAKE AT 500 POINTS!"
+	text	"       "
+	TEXTINV	"BONUS SNAKE AT 500 POINTS!"
+	textz	""
 
 tblMsgsCh:
 	.byte	0,  0,  0,  0,  0,  0,  7,  17, 15, 0,  0,  0,  0,  14
@@ -1429,7 +1677,7 @@ tblMsgsCv:
 	;                 1111111111222222222233333333334
 	;        1234567890123456789012345678901234567890
 MSG01:
-	texti	"DEMO MODE"
+	TEXTINV	"DEMO MODE"
 	textz	"             PRESS ANY KEY"
 MSG02:
 	textz	"SCORE:             MOUSE VALUE:"
@@ -1444,9 +1692,11 @@ MSG06:
 MSG07:
 	textz	"PRESS <RETURN> TO CONTINUE"
 MSG08:
-	textfz	"READY!"
+	TEXTFLASH	"READY!"
+	textz	""
 MSG09:
-	textfz	"EXTRA SNAKE"
+	TEXTFLASH	"EXTRA SNAKE"
+	textz	""
 MSG10:
 	textz	"VIPER SPEED (0-9): "
 MSG11:
@@ -1455,7 +1705,7 @@ MSG12:
 	textz	"HIGH SCORE NUMBER "
 MSG13:
 	text	"ENTER YOUR NAME "
-	texti	"-->"
+	TEXTINV	"-->"
 	textz	" "
 MSG14:
 	textz	"TOP TEN SCORES"
@@ -1607,7 +1857,7 @@ tblSpeedsOfViper:
 	.byte	$80,$78,$70,$68,$60
 
 tblDefaultScores:
-	.word	$500
+	.word	$200
 	text	"HOW ABOUT YOU?"
 
 ; Variables in RAM
